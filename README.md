@@ -223,3 +223,15 @@ Exchange futures engine, implements by Golang.
 * 記憶體管理：Order book 需要在記憶體中維護，但也要有持久化機制
 * 精度問題：使用 decimal 類型處理金額計算，避免浮點數精度問題
 * 延遲優化：核心撮合路徑需要極低延遲，考慮使用 lock-free 數據結構
+
+<br>
+<br>
+
+---
+
+<br>
+
+## Knowledge Repository
+
+1. [Alice 的 BTC 永續合約交易故事](docs/story.md)
+2. [永續合約的本質：零和遊戲](docs/behind_essence.md)
