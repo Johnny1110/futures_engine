@@ -10,6 +10,74 @@
 
 Exchange futures engine, implements by Golang.
 
+## Quick Start
+
+### Prerequisites
+
+- Go 1.21+ 
+- Make (optional, for using Makefile targets)
+
+### Installation & Development
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd futures_engine
+
+# Download dependencies
+go mod download
+
+# Build the project
+make build
+# or
+go build -o bin/futures_engine ./cmd/futures_engine
+
+# Run the application
+./bin/futures_engine
+
+# Run with options
+./bin/futures_engine --help
+./bin/futures_engine --version
+./bin/futures_engine --log-level debug
+
+# Run tests
+make test
+# or
+go test -v ./...
+
+# Run with coverage
+make coverage
+
+# Development mode with auto-reload (requires air)
+make dev
+```
+
+### Available Make Targets
+
+- `make build` - Build the binary
+- `make test` - Run tests  
+- `make coverage` - Run tests with coverage
+- `make lint` - Run linter (requires golangci-lint)
+- `make clean` - Clean build artifacts
+- `make release` - Build optimized release binary
+- `make help` - Show all available targets
+
+### Project Structure
+
+```
+├── cmd/futures_engine/     # Application entrypoint
+├── internal/              # Private application code
+│   ├── config/           # Configuration management
+│   ├── logger/           # Logging utilities
+│   └── version/          # Version information
+├── pkg/utils/            # Public utility packages
+├── docs/                 # Documentation
+├── .github/workflows/    # CI/CD pipelines
+├── Dockerfile           # Container configuration
+├── Makefile             # Build automation
+└── .golangci.yml        # Linting configuration
+```
+
 <br>
 <br>
 

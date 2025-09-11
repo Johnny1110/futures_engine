@@ -7,7 +7,7 @@ GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
 # Binary info
-BINARY_NAME=exchange
+BINARY_NAME=futures_engine
 BINARY_UNIX=$(BINARY_NAME)_unix
 BINARY_WINDOWS=$(BINARY_NAME).exe
 
@@ -67,7 +67,7 @@ deps: ## Download and tidy dependencies
 # Build for development
 build: ## Build the binary for current platform
 	@echo "$(BLUE)🔨 Building $(BINARY_NAME)...$(NC)"
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) -v .
+	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) -v ./cmd/$(BINARY_NAME)
 
 # Test
 test: ## Run tests
