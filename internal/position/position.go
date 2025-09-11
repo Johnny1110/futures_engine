@@ -94,12 +94,6 @@ func (p *Position) Open(side PositionSide, price float64, size float64, leverage
 	return nil
 }
 
-// calculateMaintenanceMargin calculate Maintenance Margin value
-func (p *Position) calculateMaintenanceMargin(positionValue decimal.Decimal) decimal.Decimal {
-	// TODO
-	return decimal.Zero
-}
-
 // Add position (加倉)
 func (p *Position) Add(price float64, size float64) error {
 	p.mu.Lock()
@@ -137,11 +131,64 @@ func (p *Position) Add(price float64, size float64) error {
 	return nil
 }
 
-// Reduce position (減倉)
-func (p *Position) Reduce(price float64, size float64) (decimal.Decimal, error) {
+// Reduce position (減倉) return pnl, error
+func (p *Position) Reduce(price float64, size float64) (pnl decimal.Decimal, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.Status != PositionNormal {
+		return pnl, fmt.Errorf("reduce position failed, position status is not normal")
+	}
+
+	priceD := decimal.NewFromFloat(price)
+	sizeD := decimal.NewFromFloat(size)
+	if sizeD.GreaterThan(p.Size) {
+		return pnl, fmt.Errorf("reduce position failed, reduce size exceeds position size")
+	}
+
+	// calculate and update Realized PnL
+	if p.Side == LONG { // calculate long side
+		// long_pnl = (price - EntryPrice) * size
+		pnl = priceD.Sub(p.EntryPrice).Mul(sizeD)
+	} else { // calculate short side
+		// short_pnl = (EntryPrice - price) * size
+		pnl = p.EntryPrice.Sub(priceD).Mul(sizeD)
+	}
+	p.RealizedPnL = p.RealizedPnL.Add(pnl)
+
+	// reduce position size
+	p.Size = p.Size.Sub(sizeD)
+
+	if p.Size.IsZero() { // is size is zero -> close position
+		p.Status = PositionClosed
+		p.InitialMargin = decimal.Zero
+		p.MaintenanceMargin = decimal.Zero
+	} else { // update maintenance margin
+		positionValue := p.EntryPrice.Mul(p.Size)
+		p.InitialMargin = positionValue.Div(decimal.NewFromUint64(uint64(p.Leverage)))
+		p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
+	}
+
+	// update cache
+	p.sizeFloat = p.Size.InexactFloat64()
+	// update time
+	p.UpdateTime = time.Now()
+
+	return pnl, nil
+}
+
+// Close position（全部平倉）
+func (p *Position) Close(price float64) (decimal.Decimal, error) {
+	// reduce all size left.
+	return p.Reduce(price, p.sizeFloat)
+}
+
+// --------------------------------------------------------------------------------------------
+// private func
+// --------------------------------------------------------------------------------------------
+
+// calculateMaintenanceMargin calculate Maintenance Margin value
+func (p *Position) calculateMaintenanceMargin(positionValue decimal.Decimal) decimal.Decimal {
 	// TODO
-	return decimal.Zero, nil
+	return decimal.Zero
 }
