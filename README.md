@@ -235,3 +235,4 @@ Exchange futures engine, implements by Golang.
 
 1. [Alice 的 BTC 永續合約交易故事](docs/story.md)
 2. [永續合約的本質：零和遊戲](docs/behind_essence.md)
+3. [精度問題](docs/accuracy_issue.md)
