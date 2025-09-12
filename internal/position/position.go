@@ -181,7 +181,7 @@ func (p *Position) Reduce(price float64, size float64) (pnl decimal.Decimal, err
 // Close position（全部平倉）
 func (p *Position) Close(price float64) (decimal.Decimal, error) {
 	// reduce all size left.
-	return p.Reduce(price, p.sizeFloat)
+	return p.Reduce(price, p.Size.InexactFloat64())
 }
 
 // UpdateMarkPrice (更新標記價格)
