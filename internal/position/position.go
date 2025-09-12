@@ -86,6 +86,8 @@ func (p *Position) Open(side PositionSide, price float64, size float64, leverage
 	p.InitialMargin = positionValue.Div(decimal.NewFromUint64(uint64(leverage)))
 	p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
 
+	p.calculateLiquidationPrice()
+
 	// cache price & size with float64
 	p.entryPriceFloat = price
 	p.sizeFloat = size
@@ -122,6 +124,8 @@ func (p *Position) Add(price float64, size float64) error {
 	positionValue := p.EntryPrice.Mul(totalSize)
 	p.InitialMargin = positionValue.Div(decimal.NewFromUint64(uint64(p.Leverage)))
 	p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
+
+	p.calculateLiquidationPrice()
 
 	// update cache
 	p.entryPriceFloat = p.EntryPrice.InexactFloat64()
@@ -170,6 +174,8 @@ func (p *Position) Reduce(price float64, size float64) (pnl decimal.Decimal, err
 		p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
 	}
 
+	p.calculateLiquidationPrice()
+
 	// update cache
 	p.sizeFloat = p.Size.InexactFloat64()
 	// update time
@@ -206,37 +212,6 @@ func (p *Position) UpdateMarkPrice(markPrice float64) {
 	}
 }
 
-// CalculateLiquidationPrice (強平價格)
-func (p *Position) CalculateLiquidationPrice() decimal.Decimal {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.Size.IsZero() {
-		return decimal.Zero
-	}
-
-	// Liquidation Price Formula:
-	// (LONG) :  LiquidationPrice = EntryPrice - (InitialMargin - MaintenanceMargin) / Size
-	// (SHORT):  LiquidationPrice = EntryPrice + (InitialMargin - MaintenanceMargin) / Size
-
-	// 理解公式：假如初始押金我投入 10000 USDT，我開倉數量為 10 顆 FZO 幣，不考慮維持保證金情況下，我每一顆 FZO 的押金是 10000/10 = 1000
-	// 		   相當於我每一個 FZO 幣最多虧損 1000 元就應概要被強制平倉．
-	//         假如我的開倉價為 100000 USDT：
-	//        		多頭強平價就是 100000-1000 = 99000  USDT
-	//        		空頭強平價就是 100000+1000 = 110000 USDT
-
-	marginBuffer := p.InitialMargin.Sub(p.MaintenanceMargin) // 保證金緩衝額 = 初始放入的押金 - 滑價保險額度
-	priceBuffer := marginBuffer.Div(p.Size)                  // 價格緩衝額   = 保證金緩衝額 / 倉位數量
-
-	if p.Side == LONG { // LONG side
-		p.LiquidationPrice = p.EntryPrice.Sub(priceBuffer)
-	} else { // SHORT side
-		p.LiquidationPrice = p.EntryPrice.Add(priceBuffer)
-	}
-
-	return p.LiquidationPrice
-}
-
 // GetMarginRatio (保證金率)
 func (p *Position) GetMarginRatio() decimal.Decimal {
 	p.mu.RLock()
@@ -271,7 +246,7 @@ func (p *Position) IsLiquidatable() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	if p.Status != PositionNormal || p.Size.IsZero() {
+	if p.Status != PositionNormal || p.Size.IsZero() || p.MarkPrice.IsZero() {
 		return false
 	}
 
@@ -283,6 +258,18 @@ func (p *Position) IsLiquidatable() bool {
 	maintenanceRatio := p.MaintenanceMargin.Div(positionValue).Mul(decimal.NewFromInt(100))
 	// 如果沒有 MaintenanceMargin，可以理解為 marginRatio 降低到 0 既為可被清算
 	return marginRatio.LessThanOrEqual(maintenanceRatio)
+}
+
+func (p *Position) GetPositionValue() decimal.Decimal {
+	if p.MarkPrice.IsZero() || p.Size.IsZero() {
+		return decimal.Zero
+	}
+	return p.MarkPrice.Mul(p.Size)
+}
+
+// GetRoi (投資報酬率)
+func (p *Position) GetRoi() decimal.Decimal {
+	return p.UnrealizedPnL.Div(p.InitialMargin)
 }
 
 // GetDisplayInfo（用於顯示）
@@ -323,4 +310,32 @@ func (p *Position) calculateMaintenanceMargin(positionValue decimal.Decimal) dec
 		}
 	}
 	return positionValue.Mul(maintenanceRate)
+}
+
+// calculateLiquidationPrice (強平價格)
+func (p *Position) calculateLiquidationPrice() decimal.Decimal {
+	if p.Size.IsZero() {
+		return decimal.Zero
+	}
+
+	// Liquidation Price Formula:
+	// (LONG) :  LiquidationPrice = EntryPrice - (InitialMargin - MaintenanceMargin) / Size
+	// (SHORT):  LiquidationPrice = EntryPrice + (InitialMargin - MaintenanceMargin) / Size
+
+	// 理解公式：假如初始押金我投入 10000 USDT，我開倉數量為 10 顆 FZO 幣，不考慮維持保證金情況下，我每一顆 FZO 的押金是 10000/10 = 1000
+	// 		   相當於我每一個 FZO 幣最多虧損 1000 元就應概要被強制平倉．
+	//         假如我的開倉價為 100000 USDT：
+	//        		多頭強平價就是 100000-1000 = 99000  USDT
+	//        		空頭強平價就是 100000+1000 = 110000 USDT
+
+	marginBuffer := p.InitialMargin.Sub(p.MaintenanceMargin) // 保證金緩衝額 = 初始放入的押金 - 滑價保險額度
+	priceBuffer := marginBuffer.Div(p.Size)                  // 價格緩衝額   = 保證金緩衝額 / 倉位數量
+
+	if p.Side == LONG { // LONG side
+		p.LiquidationPrice = p.EntryPrice.Sub(priceBuffer)
+	} else { // SHORT side
+		p.LiquidationPrice = p.EntryPrice.Add(priceBuffer)
+	}
+
+	return p.LiquidationPrice
 }
