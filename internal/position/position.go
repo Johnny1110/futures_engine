@@ -24,10 +24,10 @@ type Position struct {
 	LiquidationPrice decimal.Decimal `json:"liquidation_price"` // 強平價格
 
 	// margin info (decimal)
-	InitialMargin     decimal.Decimal   `json:"initial_margin"`     // 初始保證金
-	MaintenanceMargin decimal.Decimal   `json:"maintenance_margin"` // 維持保證金
-	Leverage          uint              `json:"leverage"`
-	MarginMode        common.MarginMode `json:"margin_mode"`
+	InitialMargin     decimal.Decimal `json:"initial_margin"`     // 初始保證金 (放進倉位鎖定的錢)
+	MaintenanceMargin decimal.Decimal `json:"maintenance_margin"` // 維持保證金
+	Leverage          uint            `json:"leverage"`
+	MarginMode        MarginMode      `json:"margin_mode"`
 
 	// PnL info (decimal)
 	RealizedPnL   decimal.Decimal `json:"realized_pnl"`   // 已實現盈虧
@@ -46,11 +46,12 @@ type Position struct {
 }
 
 // NewPosition create a init position
-func NewPosition(userID, symbol string) *Position {
+func NewPosition(userID, symbol string, mode MarginMode) *Position {
 	return &Position{
 		ID:              common.GeneratePositionID(),
 		UserID:          userID,
 		Symbol:          symbol,
+		MarginMode:      mode,
 		Status:          PositionNormal,
 		Size:            decimal.Zero,
 		EntryPrice:      decimal.Zero,
@@ -63,7 +64,7 @@ func NewPosition(userID, symbol string) *Position {
 	}
 }
 
-// Open Position
+// Open Position (開倉)
 func (p *Position) Open(side PositionSide, price float64, size float64, leverage uint) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -183,12 +184,143 @@ func (p *Position) Close(price float64) (decimal.Decimal, error) {
 	return p.Reduce(price, p.sizeFloat)
 }
 
+// UpdateMarkPrice (更新標記價格)
+func (p *Position) UpdateMarkPrice(markPrice float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	markPriceD := decimal.NewFromFloat(markPrice)
+	p.MarkPrice = markPriceD
+
+	if p.Size.IsZero() {
+		p.UnrealizedPnL = decimal.Zero
+	}
+
+	// calculate unrealized PnL
+	if p.Side == LONG { // long side
+		// formula = (markPrice - entryPrice) * size
+		p.UnrealizedPnL = markPriceD.Sub(p.EntryPrice).Mul(p.Size)
+	} else { // short side
+		// formula = (entryPrice - markPrice) * size
+		p.UnrealizedPnL = p.EntryPrice.Sub(markPriceD).Mul(p.Size)
+	}
+}
+
+// CalculateLiquidationPrice (強平價格)
+func (p *Position) CalculateLiquidationPrice() decimal.Decimal {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Size.IsZero() {
+		return decimal.Zero
+	}
+
+	// Liquidation Price Formula:
+	// (LONG) :  LiquidationPrice = EntryPrice - (InitialMargin - MaintenanceMargin) / Size
+	// (SHORT):  LiquidationPrice = EntryPrice + (InitialMargin - MaintenanceMargin) / Size
+
+	// 理解公式：假如初始押金我投入 10000 USDT，我開倉數量為 10 顆 FZO 幣，不考慮維持保證金情況下，我每一顆 FZO 的押金是 10000/10 = 1000
+	// 		   相當於我每一個 FZO 幣最多虧損 1000 元就應概要被強制平倉．
+	//         假如我的開倉價為 100000 USDT：
+	//        		多頭強平價就是 100000-1000 = 99000  USDT
+	//        		空頭強平價就是 100000+1000 = 110000 USDT
+
+	marginBuffer := p.InitialMargin.Sub(p.MaintenanceMargin) // 保證金緩衝額 = 初始放入的押金 - 滑價保險額度
+	priceBuffer := marginBuffer.Div(p.Size)                  // 價格緩衝額   = 保證金緩衝額 / 倉位數量
+
+	if p.Side == LONG { // LONG side
+		p.LiquidationPrice = p.EntryPrice.Sub(priceBuffer)
+	} else { // SHORT side
+		p.LiquidationPrice = p.EntryPrice.Add(priceBuffer)
+	}
+
+	return p.LiquidationPrice
+}
+
+// GetMarginRatio (保證金率)
+func (p *Position) GetMarginRatio() decimal.Decimal {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.Size.IsZero() || p.MarkPrice.IsZero() {
+		return decimal.NewFromInt(100) // safe
+	}
+
+	// MarginRatio Formula:
+	// MarginRatio = (MarginAccount Equity Value / Position Value) * 100%
+
+	positionValue := p.MarkPrice.Mul(p.Size)
+	if positionValue.IsZero() {
+		return decimal.NewFromInt(100)
+	}
+	// cross: TODO
+	// Isolated: (InitialMargin + UnrealizedPnL) / (MarkPrice * Size)
+	accountEquity := decimal.Zero
+	switch p.MarginMode {
+	case CROSS:
+		panic("not implemented cross mode yet")
+	case ISOLATED:
+		accountEquity = p.InitialMargin.Add(p.UnrealizedPnL)
+	}
+
+	return accountEquity.Div(positionValue).Mul(decimal.NewFromInt(100))
+}
+
+// IsLiquidatable (可清算)
+func (p *Position) IsLiquidatable() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.Status != PositionNormal || p.Size.IsZero() {
+		return false
+	}
+
+	marginRatio := p.GetMarginRatio()
+
+	// marginRatio:      (MarginAccountEquity / PositionValue) * 100%
+	// maintenanceRatio: (MaintenanceMargin / PositionValue) * 100%
+	positionValue := p.MarkPrice.Mul(p.Size)
+	maintenanceRatio := p.MaintenanceMargin.Div(positionValue).Mul(decimal.NewFromInt(100))
+	// 如果沒有 MaintenanceMargin，可以理解為 marginRatio 降低到 0 既為可被清算
+	return marginRatio.LessThanOrEqual(maintenanceRatio)
+}
+
+// GetDisplayInfo（用於顯示）
+func (p *Position) GetDisplayInfo() map[string]interface{} {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return map[string]interface{}{
+		"id":                p.ID,
+		"user_id":           p.UserID,
+		"symbol":            p.Symbol,
+		"side":              p.Side.String(),
+		"size":              p.Size.String(),
+		"entry_price":       p.EntryPrice.String(),
+		"mark_price":        p.MarkPrice.String(),
+		"liquidation_price": p.LiquidationPrice.String(),
+		"leverage":          p.Leverage,
+		"margin_mode":       p.MarginMode,
+		"unrealized_pnl":    p.UnrealizedPnL.String(),
+		"realized_pnl":      p.RealizedPnL.String(),
+		"margin_ratio":      p.GetMarginRatio().String() + "%",
+		"is_liquidatable":   p.IsLiquidatable(),
+	}
+}
+
 // --------------------------------------------------------------------------------------------
 // private func
 // --------------------------------------------------------------------------------------------
 
 // calculateMaintenanceMargin calculate Maintenance Margin value
 func (p *Position) calculateMaintenanceMargin(positionValue decimal.Decimal) decimal.Decimal {
-	// TODO
-	return decimal.Zero
+	positionValueF := positionValue.InexactFloat64()
+	maintenanceRate := decimal.Zero
+	for _, t := range DefaultMarginTiers {
+		if positionValueF >= t.MinValue && positionValueF <= t.MaxValue {
+			maintenanceRate = t.MaintenanceRate
+			break
+		}
+	}
+	return positionValue.Mul(maintenanceRate)
 }

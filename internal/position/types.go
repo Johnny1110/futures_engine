@@ -1,5 +1,7 @@
 package position
 
+import "github.com/shopspring/decimal"
+
 // PositionSide LONG or SHORT
 type PositionSide int
 
@@ -65,3 +67,31 @@ func (ps PositionStatus) String() string {
 }
 
 // ========================================================
+
+type MarginMode int
+
+const (
+	CROSS MarginMode = iota
+	ISOLATED
+)
+
+func (mode MarginMode) String() string {
+	switch mode {
+	case CROSS:
+		return "CROSS"
+	case ISOLATED:
+		return "ISOLATED"
+	default:
+		return "unknown"
+	}
+}
+
+// ========================================================
+
+// MarginTier for calculate MaintenanceMargin
+type MarginTier struct {
+	MinValue        float64         // 最小倉位價值
+	MaxValue        float64         // 最大倉位價值
+	MaintenanceRate decimal.Decimal // 維持保證金率
+	MaxLeverage     uint            // 最大槓桿
+}
