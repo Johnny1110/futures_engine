@@ -2,7 +2,6 @@ package position
 
 import (
 	"fmt"
-	"github.com/shopspring/decimal"
 	"sync"
 )
 
@@ -29,7 +28,7 @@ func (p *UserPositions) getLiquidatablePositions() []*Position {
 
 func (p *UserPositions) hasOpenPosition() bool {
 	for _, position := range *p {
-		if !position.Size.IsZero() {
+		if position.Size > position.ZeroSize() {
 			// if any position has non-zero size, means have open position.
 			return true
 		}
@@ -93,14 +92,14 @@ func (pm *PositionManager) OpenPosition(marginMode MarginMode, userID, symbol st
 	positionKey := getPositionKey(symbol, side, pm.mode[userID])
 
 	// check user's position is exist
-	if existingPosition, exists := pm.positions[userID][positionKey]; exists && !existingPosition.Size.IsZero() {
+	if existingPosition, exists := pm.positions[userID][positionKey]; exists && existingPosition.Size > existingPosition.ZeroSize() {
 		// if existing: Add() - 加倉
 		err := existingPosition.Add(price, size)
 		return existingPosition, err
 	} else {
 		// not exist: Open() - 開倉
-		position := NewPosition(userID, symbol, marginMode)
-		err := position.Open(side, price, size, leverage)
+		position := NewPosition(userID, symbol, marginMode, nil)
+		err := position.Open(side, price, size, int16(leverage))
 		if err != nil {
 			return nil, err
 		}
@@ -111,19 +110,19 @@ func (pm *PositionManager) OpenPosition(marginMode MarginMode, userID, symbol st
 }
 
 // ClosePosition (關倉/全部平倉) return PnL
-func (pm *PositionManager) ClosePosition(userID, symbol string, side PositionSide, price float64) (decimal.Decimal, error) {
+func (pm *PositionManager) ClosePosition(userID, symbol string, side PositionSide, price float64) (float64, error) {
 	position, err := pm.GetPosition(userID, symbol, side)
 	if err != nil {
-		return decimal.Zero, err
+		return 0.0, err
 	}
 	return position.Close(price)
 }
 
-// ClosePosition (減倉/部分平倉) return PnL
-func (pm *PositionManager) ReducePosition(userID, symbol string, side PositionSide, price, size float64) (decimal.Decimal, error) {
+// ReducePosition (減倉/部分平倉) return PnL
+func (pm *PositionManager) ReducePosition(userID, symbol string, side PositionSide, price, size float64) (float64, error) {
 	position, err := pm.GetPosition(userID, symbol, side)
 	if err != nil {
-		return decimal.Zero, err
+		return 0.0, err
 	}
 	return position.Reduce(price, size)
 }

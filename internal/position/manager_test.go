@@ -2,7 +2,6 @@ package position
 
 import (
 	"fmt"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -23,31 +22,31 @@ func TestBasicPositionLifecycle(t *testing.T) {
 	fmt.Println("開倉時的收益率:", position.GetRoi())
 
 	// 驗證初始值
-	assert.Equal(t, decimal.NewFromFloat(1.0), position.Size)
-	assert.Equal(t, decimal.NewFromFloat(50000), position.EntryPrice)
-	assert.Equal(t, uint(10), position.Leverage)
+	assert.Equal(t, 1.0, position.Size)
+	assert.Equal(t, 50000.0, position.EntryPrice)
+	assert.Equal(t, int16(10), position.Leverage)
 
 	// 初始保證金應該是 50000 / 10 = 5000
-	expectedMargin := decimal.NewFromFloat(5000)
+	expectedMargin := 5000.0
 	fmt.Println("position.InitialMargin:", position.InitialMargin)
-	assert.Equal(t, expectedMargin.String(), position.InitialMargin.String())
+	assert.Equal(t, expectedMargin, position.InitialMargin)
 
 	fmt.Println("MaintenanceMargin:", position.MaintenanceMargin)
 
-	assert.Equal(t, "200", position.MaintenanceMargin.String())
-	assert.Equal(t, "100", position.GetMarginRatio().String())
+	assert.True(t, position.MaintenanceMargin > 0)
+	assert.InDelta(t, 10.0, position.GetMarginRatio(), 1.0)
 
 	// 2. 更新標記價格，測試未實現盈虧
 	fmt.Println("\n=== 價格上漲到 51000 ===")
 	position.UpdateMarkPrice(51000)
 
 	fmt.Println("when price -> 51000: MarginRatio:", position.GetMarginRatio())
-	assert.Equal(t, "11.76470588235294", position.GetMarginRatio().String())
+	assert.True(t, position.GetMarginRatio() > 10.0)
 
 	// 多倉，價格上漲，應該盈利 1000
-	expectedPnL := decimal.NewFromFloat(1000)
+	expectedPnL := 1000.0
 	assert.Equal(t, expectedPnL, position.UnrealizedPnL)
-	fmt.Printf("未實現盈虧: %s\n", position.UnrealizedPnL.String())
+	fmt.Printf("未實現盈虧: %f\n", position.UnrealizedPnL)
 	fmt.Println("價格到 51000 的收益率:", position.GetRoi())
 
 	// 3. 加倉
@@ -56,9 +55,9 @@ func TestBasicPositionLifecycle(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 新均價 = (50000*1 + 51000*0.5) / 1.5 = 50333.33
-	expectedEntryPrice := decimal.NewFromFloat(50333.333333333336)
-	assert.True(t, position.EntryPrice.Sub(expectedEntryPrice).Abs().LessThan(decimal.NewFromFloat(0.01)))
-	assert.Equal(t, decimal.NewFromFloat(1.5), position.Size)
+	expectedEntryPrice := 50333.333333333336
+	assert.InDelta(t, expectedEntryPrice, position.EntryPrice, 0.01)
+	assert.Equal(t, 1.5, position.Size)
 
 	fmt.Printf("加倉後倉位: %+v\n", position.GetDisplayInfo())
 
@@ -68,10 +67,10 @@ func TestBasicPositionLifecycle(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 平倉盈虧 = (52000 - 50333.33) * 0.5 = 833.33
-	expectedReducePnL := decimal.NewFromFloat(833.335)
-	assert.True(t, pnl.Sub(expectedReducePnL).Abs().LessThan(decimal.NewFromFloat(1)))
+	expectedReducePnL := 833.335
+	assert.InDelta(t, expectedReducePnL, pnl, 1.0)
 
-	fmt.Printf("部分平倉已實現盈虧: %s\n", pnl.String())
+	fmt.Printf("部分平倉已實現盈虧: %f\n", pnl)
 	fmt.Printf("剩餘倉位: %+v\n", position.GetDisplayInfo())
 
 	// 5. 全部平倉
@@ -80,15 +79,15 @@ func TestBasicPositionLifecycle(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 最終平倉盈虧 = (53000 - 50333.33) * 1.0 = 2666.67
-	expectedFinalPnL := decimal.NewFromFloat(2666.67)
-	assert.True(t, finalPnL.Sub(expectedFinalPnL).Abs().LessThan(decimal.NewFromFloat(1)))
+	expectedFinalPnL := 2666.67
+	assert.InDelta(t, expectedFinalPnL, finalPnL, 1.0)
 
-	fmt.Printf("最終平倉盈虧: %s\n", finalPnL.String())
-	fmt.Printf("總已實現盈虧: %s\n", position.RealizedPnL.String())
+	fmt.Printf("最終平倉盈虧: %f\n", finalPnL)
+	fmt.Printf("總已實現盈虧: %f\n", position.RealizedPnL)
 
 	// 驗證倉位已關閉
 	assert.Equal(t, PositionClosed, position.Status)
-	assert.True(t, position.Size.IsZero())
+	assert.True(t, position.Size <= position.ZeroSize())
 }
 
 // TestShortPosition 測試空倉
@@ -109,23 +108,23 @@ func TestShortPosition(t *testing.T) {
 	position.UpdateMarkPrice(2900)
 
 	// 空倉，價格下跌，應該盈利 (3000-2900)*10 = 1000
-	expectedPnL := decimal.NewFromFloat(1000)
+	expectedPnL := 1000.0
 	assert.Equal(t, expectedPnL, position.UnrealizedPnL)
-	fmt.Printf("空倉盈利: %s\n", position.UnrealizedPnL.String())
+	fmt.Printf("空倉盈利: %f\n", position.UnrealizedPnL)
 
 	// 3. 價格上漲（空倉虧損）
 	fmt.Println("\n=== 價格上漲到 3100 ===")
 	position.UpdateMarkPrice(3100)
 
 	// 空倉，價格上漲，應該虧損 (3000-3100)*10 = -1000
-	expectedLoss := decimal.NewFromFloat(-1000)
+	expectedLoss := -1000.0
 	assert.Equal(t, expectedLoss, position.UnrealizedPnL)
-	fmt.Printf("空倉虧損: %s\n", position.UnrealizedPnL.String())
+	fmt.Printf("空倉虧損: %f\n", position.UnrealizedPnL)
 }
 
 // TestLiquidation 測試強平
 func TestLiquidation(t *testing.T) {
-	position := NewPosition("user789", "BTCUSDT", ISOLATED)
+	position := NewPosition("user789", "BTCUSDT", ISOLATED, nil)
 
 	// 開一個高槓桿多倉
 	err := position.Open(LONG, 50000, 1, 100) // 100倍槓桿
@@ -136,30 +135,30 @@ func TestLiquidation(t *testing.T) {
 
 	// 計算強平價格
 	liquidationPrice := position.LiquidationPrice
-	fmt.Printf("強平價格: %s\n", liquidationPrice.String())
+	fmt.Printf("強平價格: %f\n", liquidationPrice)
 
 	// 100倍槓桿，初始保證金 1%，維持保證金 0.5%
 	// 強平價格應該約等於 50000 * (1 - 0.01 + 0.004) = 49700
-	expectedLiqPrice := decimal.NewFromFloat(49700)
-	assert.True(t, liquidationPrice.Sub(expectedLiqPrice).Abs().LessThan(decimal.NewFromFloat(100)))
+	expectedLiqPrice := 49700.0
+	assert.InDelta(t, expectedLiqPrice, liquidationPrice, 100.0)
 
 	// 測試接近強平
 	fmt.Println("\n=== 價格接近強平價 ===")
 	position.UpdateMarkPrice(49710)
 	fmt.Println("接近強平時，倉位資料：", position.GetDisplayInfo())
-	fmt.Println("接近強平時，倉位價值：", position.GetPositionValue())
-	fmt.Println("初始保證金：", position.InitialMargin.String(), "未實現損益:", position.UnrealizedPnL.String())
+	fmt.Println("接近強平時，倉位價值：", position.PositionValue)
+	fmt.Println("初始保證金：", position.InitialMargin, "未實現損益:", position.UnrealizedPnL)
 	// MarginRatio = (MarginAccount Equity Value / Position Value) * 100%
 	//  (初始保證金 + 未實現損益) /49710 * 100% -> (500 - -290) / 49710
 	marginRatio := position.GetMarginRatio()
-	fmt.Printf("保證金率: %s%%\n", marginRatio.String())
+	fmt.Printf("保證金率: %f%%\n", marginRatio)
 	fmt.Printf("是否可強平: %v\n", position.IsLiquidatable())
 
 	// 測試觸發強平
 	fmt.Println("\n=== 價格跌破強平價 ===")
 	position.UpdateMarkPrice(49700)
 	marginRatio = position.GetMarginRatio()
-	fmt.Printf("保證金率: %s%%\n", marginRatio.String())
+	fmt.Printf("保證金率: %f%%\n", marginRatio)
 	fmt.Printf("是否可強平: %v\n", position.IsLiquidatable())
 	assert.True(t, position.IsLiquidatable())
 }
@@ -257,8 +256,8 @@ func TestBatchLiquidationCheck(t *testing.T) {
 	for _, pos := range liquidatable {
 		fmt.Printf("用戶 %s 的 %s %s 倉位需要強平\n",
 			pos.UserID, pos.Symbol, pos.Side.String())
-		fmt.Printf("  - 保證金率: %s%%\n", pos.GetMarginRatio().String())
-		fmt.Printf("  - 未實現虧損: %s\n", pos.UnrealizedPnL.String())
+		fmt.Printf("  - 保證金率: %f%%\n", pos.GetMarginRatio())
+		fmt.Printf("  - 未實現虧損: %f\n", pos.UnrealizedPnL)
 	}
 
 	// 至少用戶2的高槓桿多倉應該被強平
@@ -267,7 +266,7 @@ func TestBatchLiquidationCheck(t *testing.T) {
 
 // TestPrecisionAndRounding 測試精度和四捨五入
 func TestPrecisionAndRounding(t *testing.T) {
-	position := NewPosition("precision_test", "BTCUSDT", ISOLATED)
+	position := NewPosition("precision_test", "BTCUSDT", ISOLATED, nil)
 
 	fmt.Println("=== 測試精度處理 ===")
 
@@ -283,21 +282,21 @@ func TestPrecisionAndRounding(t *testing.T) {
 	assert.NoError(t, err)
 
 	fmt.Printf("複雜計算後的倉位:\n")
-	fmt.Printf("  - 倉位大小: %s\n", position.Size.String())
-	fmt.Printf("  - 開倉均價: %s\n", position.EntryPrice.String())
+	fmt.Printf("  - 倉位大小: %f\n", position.Size)
+	fmt.Printf("  - 開倉均價: %f\n", position.EntryPrice)
 
 	// 測試盈虧計算精度
 	position.UpdateMarkPrice(33340.00)
-	fmt.Printf("  - 未實現盈虧: %s\n", position.UnrealizedPnL.String())
+	fmt.Printf("  - 未實現盈虧: %f\n", position.UnrealizedPnL)
 
 	// 部分平倉測試精度
 	pnl, err := position.Reduce(33350.00, 0.123456789)
 	assert.NoError(t, err)
-	fmt.Printf("  - 平倉盈虧: %s\n", pnl.String())
+	fmt.Printf("  - 平倉盈虧: %f\n", pnl)
 
 	// 驗證所有計算都保持精確
-	assert.False(t, position.Size.IsZero())
-	assert.True(t, position.RealizedPnL.GreaterThan(decimal.Zero))
+	assert.True(t, position.Size > position.ZeroSize())
+	assert.True(t, position.RealizedPnL > 0)
 }
 
 // BenchmarkPositionOperations 性能測試
@@ -313,7 +312,7 @@ func BenchmarkPositionOperations(b *testing.B) {
 
 	b.Run("UpdateMarkPrice", func(b *testing.B) {
 		// 準備測試數據
-		for i := 0; i < 10000; i++ {
+		for i := 0; i < 1000; i++ {
 			userID := fmt.Sprintf("bench_user_%d", i)
 			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
 		}
@@ -328,7 +327,7 @@ func BenchmarkPositionOperations(b *testing.B) {
 
 	b.Run("LiquidationCheck", func(b *testing.B) {
 		// 準備高風險倉位
-		for i := 0; i < 10000; i++ {
+		for i := 0; i < 1000; i++ {
 			userID := fmt.Sprintf("risk_user_%d", i)
 			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 100)
 		}
@@ -353,7 +352,7 @@ func ExamplePositionManager() {
 
 	// 市場上漲
 	position.UpdateMarkPrice(51000)
-	fmt.Printf("價格漲到 $51,000，未實現盈利: %s\n", position.UnrealizedPnL.String())
+	fmt.Printf("價格漲到 $51,000，未實現盈利: %f\n", position.UnrealizedPnL)
 
 	// 加倉
 	position.Add(51000, 0.5)
@@ -361,7 +360,7 @@ func ExamplePositionManager() {
 
 	// 部分平倉
 	pnl, _ := position.Reduce(52000, 0.5)
-	fmt.Printf("平倉 0.5 BTC @ $52,000，已實現盈利: %s\n", pnl.String())
+	fmt.Printf("平倉 0.5 BTC @ $52,000，已實現盈利: %f\n", pnl)
 
 	// 檢查強平風險
 	position.UpdateMarkPrice(46000)

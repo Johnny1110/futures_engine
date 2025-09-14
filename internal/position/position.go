@@ -3,7 +3,7 @@ package position
 import (
 	"fmt"
 	"frizo/futures_engine/common"
-	"github.com/shopspring/decimal"
+	"math"
 	"sync"
 	"time"
 )
@@ -18,79 +18,78 @@ type Position struct {
 	Status PositionStatus `json:"status"`
 
 	// position info (decimal)
-	Size             decimal.Decimal `json:"size"`
-	EntryPrice       decimal.Decimal `json:"entry_price"`       // 開倉價格
-	MarkPrice        decimal.Decimal `json:"mark_price"`        // 標記價格
-	LiquidationPrice decimal.Decimal `json:"liquidation_price"` // 強平價格
+	Size             float64 `json:"size"`
+	EntryPrice       float64 `json:"entry_price"`       // 開倉價格
+	MarkPrice        float64 `json:"mark_price"`        // 標記價格
+	PositionValue    float64 `json:"position_value"`    // 倉位價值 cache (MarkPrice*Size)
+	LiquidationPrice float64 `json:"liquidation_price"` // 強平價格
 
 	// margin info (decimal)
-	InitialMargin     decimal.Decimal `json:"initial_margin"`     // 初始保證金 (放進倉位鎖定的錢)
-	MaintenanceMargin decimal.Decimal `json:"maintenance_margin"` // 維持保證金
-	Leverage          uint            `json:"leverage"`
-	MarginMode        MarginMode      `json:"margin_mode"`
+	InitialMargin     float64    `json:"initial_margin"`     // 初始保證金 (放進倉位鎖定的錢)
+	MaintenanceMargin float64    `json:"maintenance_margin"` // 維持保證金
+	Leverage          int16      `json:"leverage"`
+	MarginMode        MarginMode `json:"margin_mode"`
 
 	// PnL info (decimal)
-	RealizedPnL   decimal.Decimal `json:"realized_pnl"`   // 已實現盈虧
-	UnrealizedPnL decimal.Decimal `json:"unrealized_pnl"` // 未實現盈虧
+	RealizedPnL   float64 `json:"realized_pnl"`   // 已實現盈虧
+	UnrealizedPnL float64 `json:"unrealized_pnl"` // 未實現盈虧
 
 	// Timestamp
 	OpenTime   time.Time `json:"open_time"`
 	UpdateTime time.Time `json:"update_time"`
 
-	// Internal Usage - float64 for calculating
-	sizeFloat       float64
-	entryPriceFloat float64
+	// === Precision Control ===
+	sizePrecision  int8
+	pricePrecision int8
 
 	// Lock
 	mu sync.RWMutex
 }
 
 // NewPosition create a init position
-func NewPosition(userID, symbol string, mode MarginMode) *Position {
+func NewPosition(userID, symbol string, mode MarginMode, precisionSetting *PrecisionSetting) *Position {
+	if precisionSetting == nil {
+		precisionSetting = DefaultPrecisionSetting
+	}
+
 	return &Position{
-		ID:              common.GeneratePositionID(),
-		UserID:          userID,
-		Symbol:          symbol,
-		MarginMode:      mode,
-		Status:          PositionNormal,
-		Size:            decimal.Zero,
-		EntryPrice:      decimal.Zero,
-		RealizedPnL:     decimal.Zero,
-		UnrealizedPnL:   decimal.Zero,
-		OpenTime:        time.Now(),
-		UpdateTime:      time.Now(),
-		sizeFloat:       0.0,
-		entryPriceFloat: 0.0,
+		ID:             common.GeneratePositionID(),
+		UserID:         userID,
+		Symbol:         symbol,
+		MarginMode:     mode,
+		Status:         PositionNormal,
+		Size:           0.0,
+		EntryPrice:     0.0,
+		RealizedPnL:    0.0,
+		UnrealizedPnL:  0.0,
+		pricePrecision: precisionSetting.PricePrecision,
+		sizePrecision:  precisionSetting.SizePrecision,
+		OpenTime:       time.Now(),
+		UpdateTime:     time.Now(),
 	}
 }
 
 // Open Position (開倉)
-func (p *Position) Open(side PositionSide, price float64, size float64, leverage uint) error {
+func (p *Position) Open(side PositionSide, price float64, size float64, leverage int16) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.Status != PositionNormal || !p.Size.IsZero() {
+	if p.Status != PositionNormal || p.Size > p.ZeroSize() {
 		return fmt.Errorf("position already exists, can not open again")
 	}
 
-	priceD := decimal.NewFromFloat(price)
-	sizeD := decimal.NewFromFloat(size)
-
 	p.Side = side
-	p.EntryPrice = priceD
-	p.Size = sizeD
+	p.EntryPrice = price
+	p.MarkPrice = price
+	p.Size = size
 	p.Leverage = leverage
 
 	// Calculate Margin
-	positionValue := priceD.Mul(sizeD) // position value
-	p.InitialMargin = positionValue.Div(decimal.NewFromUint64(uint64(leverage)))
-	p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
-
-	p.calculateLiquidationPrice()
-
-	// cache price & size with float64
-	p.entryPriceFloat = price
-	p.sizeFloat = size
+	p.updateMarkPriceAndPositionVal(price)
+	p.InitialMargin = p.PositionValue / float64(leverage)
+	p.MaintenanceMargin = p.calculateMaintenanceMargin()
+	// Calculate Liquidation Price
+	p.LiquidationPrice = p.calculateLiquidationPrice()
 	// time
 	p.UpdateTime = time.Now()
 
@@ -106,30 +105,26 @@ func (p *Position) Add(price float64, size float64) error {
 		return fmt.Errorf("add position failed, position status is not normal")
 	}
 
-	priceD := decimal.NewFromFloat(price)
-	sizeD := decimal.NewFromFloat(size)
-
 	// calculate new open price
 	// formula: new average price = (current position val + new position val) / (current position + new position)
-	oldValue := p.EntryPrice.Mul(p.Size) // 舊倉位額度
-	newValue := priceD.Mul(sizeD)        // 補倉倉位額度
-	totalValue := oldValue.Add(newValue) // 合併倉位額度
-	totalSize := p.Size.Add(sizeD)       // 合併 Size
+	oldValue := p.EntryPrice * p.Size // 舊倉位額度
+	newValue := price * size          // 補倉倉位額度
+	totalValue := oldValue + newValue // 合併倉位額度
+	totalSize := p.Size + size        // 合併 Size
 
 	// update entry-price & size
-	p.EntryPrice = totalValue.Div(totalSize)
+	p.EntryPrice = totalValue / totalSize
 	p.Size = totalSize
 
+	// update mark price & position value (no lock)
+	p.updateMarkPriceAndPositionVal(price)
+
 	// update margin
-	positionValue := p.EntryPrice.Mul(totalSize)
-	p.InitialMargin = positionValue.Div(decimal.NewFromUint64(uint64(p.Leverage)))
-	p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
-
-	p.calculateLiquidationPrice()
-
-	// update cache
-	p.entryPriceFloat = p.EntryPrice.InexactFloat64()
-	p.sizeFloat = p.Size.InexactFloat64()
+	marginValue := p.EntryPrice * totalSize
+	p.InitialMargin = marginValue / float64(p.Leverage)
+	p.MaintenanceMargin = p.calculateMaintenanceMargin()
+	// update l price
+	p.LiquidationPrice = p.calculateLiquidationPrice()
 	// update time
 	p.UpdateTime = time.Now()
 
@@ -137,7 +132,7 @@ func (p *Position) Add(price float64, size float64) error {
 }
 
 // Reduce position (減倉) return pnl, error
-func (p *Position) Reduce(price float64, size float64) (pnl decimal.Decimal, err error) {
+func (p *Position) Reduce(price float64, size float64) (pnl float64, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -145,39 +140,40 @@ func (p *Position) Reduce(price float64, size float64) (pnl decimal.Decimal, err
 		return pnl, fmt.Errorf("reduce position failed, position status is not normal")
 	}
 
-	priceD := decimal.NewFromFloat(price)
-	sizeD := decimal.NewFromFloat(size)
-	if sizeD.GreaterThan(p.Size) {
+	if size > p.Size {
 		return pnl, fmt.Errorf("reduce position failed, reduce size exceeds position size")
 	}
 
 	// calculate and update Realized PnL
 	if p.Side == LONG { // calculate long side
 		// long_pnl = (price - EntryPrice) * size
-		pnl = priceD.Sub(p.EntryPrice).Mul(sizeD)
+		pnl = (price - p.EntryPrice) * size
 	} else { // calculate short side
 		// short_pnl = (EntryPrice - price) * size
-		pnl = p.EntryPrice.Sub(priceD).Mul(sizeD)
+		pnl = (p.EntryPrice - price) * size
 	}
-	p.RealizedPnL = p.RealizedPnL.Add(pnl)
+	p.RealizedPnL = p.RealizedPnL + pnl
 
 	// reduce position size
-	p.Size = p.Size.Sub(sizeD)
+	p.Size = p.Size - size
 
-	if p.Size.IsZero() { // is size is zero -> close position
+	// update markPrice and position val
+	p.updateMarkPriceAndPositionVal(price)
+
+	if p.Size <= p.ZeroSize() { // is size is zero -> close position
 		p.Status = PositionClosed
-		p.InitialMargin = decimal.Zero
-		p.MaintenanceMargin = decimal.Zero
+		p.Size = 0.0
+		p.PositionValue = 0.0
+		p.InitialMargin = 0.0
+		p.MaintenanceMargin = 0.0
 	} else { // update maintenance margin
-		positionValue := p.EntryPrice.Mul(p.Size)
-		p.InitialMargin = positionValue.Div(decimal.NewFromUint64(uint64(p.Leverage)))
-		p.MaintenanceMargin = p.calculateMaintenanceMargin(positionValue)
+		marginValue := p.EntryPrice * p.Size
+		p.InitialMargin = marginValue / float64(p.Leverage)
+		p.MaintenanceMargin = p.calculateMaintenanceMargin()
 	}
 
 	p.calculateLiquidationPrice()
 
-	// update cache
-	p.sizeFloat = p.Size.InexactFloat64()
 	// update time
 	p.UpdateTime = time.Now()
 
@@ -185,9 +181,9 @@ func (p *Position) Reduce(price float64, size float64) (pnl decimal.Decimal, err
 }
 
 // Close position（全部平倉）
-func (p *Position) Close(price float64) (decimal.Decimal, error) {
+func (p *Position) Close(price float64) (float64, error) {
 	// reduce all size left.
-	return p.Reduce(price, p.Size.InexactFloat64())
+	return p.Reduce(price, p.Size)
 }
 
 // UpdateMarkPrice (更新標記價格)
@@ -195,51 +191,15 @@ func (p *Position) UpdateMarkPrice(markPrice float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	markPriceD := decimal.NewFromFloat(markPrice)
-	p.MarkPrice = markPriceD
-
-	if p.Size.IsZero() {
-		p.UnrealizedPnL = decimal.Zero
-	}
-
-	// calculate unrealized PnL
-	if p.Side == LONG { // long side
-		// formula = (markPrice - entryPrice) * size
-		p.UnrealizedPnL = markPriceD.Sub(p.EntryPrice).Mul(p.Size)
-	} else { // short side
-		// formula = (entryPrice - markPrice) * size
-		p.UnrealizedPnL = p.EntryPrice.Sub(markPriceD).Mul(p.Size)
-	}
+	p.updateMarkPriceAndPositionVal(markPrice)
 }
 
 // GetMarginRatio (保證金率)
-func (p *Position) GetMarginRatio() decimal.Decimal {
+func (p *Position) GetMarginRatio() float64 {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	if p.Size.IsZero() || p.MarkPrice.IsZero() {
-		return decimal.NewFromInt(100) // safe
-	}
-
-	// MarginRatio Formula:
-	// MarginRatio = (MarginAccount Equity Value / Position Value) * 100%
-
-	positionValue := p.MarkPrice.Mul(p.Size)
-
-	if positionValue.IsZero() {
-		return decimal.NewFromInt(100)
-	}
-	// cross: TODO
-	// Isolated: (InitialMargin + UnrealizedPnL) / (MarkPrice * Size)
-	accountEquity := decimal.Zero
-	switch p.MarginMode {
-	case CROSS:
-		panic("not implemented cross mode yet")
-	case ISOLATED:
-		accountEquity = p.InitialMargin.Add(p.UnrealizedPnL)
-	}
-
-	return accountEquity.Div(positionValue).Mul(decimal.NewFromInt(100))
+	return p.getMarginRatio()
 }
 
 // IsLiquidatable (可清算)
@@ -247,30 +207,22 @@ func (p *Position) IsLiquidatable() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	if p.Status != PositionNormal || p.Size.IsZero() || p.MarkPrice.IsZero() {
+	if p.Status != PositionNormal || p.Size <= p.ZeroSize() || p.MarkPrice <= p.ZeroPrice() {
 		return false
 	}
 
-	marginRatio := p.GetMarginRatio()
+	marginRatio := p.getMarginRatio()
 
 	// marginRatio:      (MarginAccountEquity / PositionValue) * 100%
 	// maintenanceRatio: (MaintenanceMargin / PositionValue) * 100%
-	positionValue := p.MarkPrice.Mul(p.Size)
-	maintenanceRatio := p.MaintenanceMargin.Div(positionValue).Mul(decimal.NewFromInt(100))
+	maintenanceRatio := p.MaintenanceMargin / p.PositionValue * 100
 	// 如果沒有 MaintenanceMargin，可以理解為 marginRatio 降低到 0 既為可被清算
-	return marginRatio.LessThanOrEqual(maintenanceRatio)
-}
-
-func (p *Position) GetPositionValue() decimal.Decimal {
-	if p.MarkPrice.IsZero() || p.Size.IsZero() {
-		return decimal.Zero
-	}
-	return p.MarkPrice.Mul(p.Size)
+	return marginRatio <= maintenanceRatio
 }
 
 // GetRoi (投資報酬率)
-func (p *Position) GetRoi() decimal.Decimal {
-	return p.UnrealizedPnL.Div(p.InitialMargin)
+func (p *Position) GetRoi() float64 {
+	return p.UnrealizedPnL / p.InitialMargin
 }
 
 // GetDisplayInfo（用於顯示）
@@ -283,16 +235,16 @@ func (p *Position) GetDisplayInfo() map[string]interface{} {
 		"user_id":           p.UserID,
 		"symbol":            p.Symbol,
 		"side":              p.Side.String(),
-		"size":              p.Size.String(),
-		"entry_price":       p.EntryPrice.String(),
-		"mark_price":        p.MarkPrice.String(),
-		"initial_margin":    p.InitialMargin.String(),
-		"liquidation_price": p.LiquidationPrice.String(),
+		"size":              p.Size,
+		"entry_price":       p.EntryPrice,
+		"mark_price":        p.MarkPrice,
+		"initial_margin":    p.InitialMargin,
+		"liquidation_price": p.LiquidationPrice,
 		"leverage":          p.Leverage,
 		"margin_mode":       p.MarginMode,
-		"unrealized_pnl":    p.UnrealizedPnL.String(),
-		"realized_pnl":      p.RealizedPnL.String(),
-		"margin_ratio":      p.GetMarginRatio().Round(2).String() + "%",
+		"unrealized_pnl":    p.UnrealizedPnL,
+		"realized_pnl":      p.RealizedPnL,
+		"margin_ratio":      fmt.Sprintf("%2f", math.Round(p.getMarginRatio())) + "%",
 		"is_liquidatable":   p.IsLiquidatable(),
 	}
 }
@@ -302,22 +254,19 @@ func (p *Position) GetDisplayInfo() map[string]interface{} {
 // --------------------------------------------------------------------------------------------
 
 // calculateMaintenanceMargin calculate Maintenance Margin value
-func (p *Position) calculateMaintenanceMargin(positionValue decimal.Decimal) decimal.Decimal {
-	positionValueF := positionValue.InexactFloat64()
-	maintenanceRate := decimal.Zero
+func (p *Position) calculateMaintenanceMargin() float64 {
 	for _, t := range DefaultMarginTiers {
-		if positionValueF >= t.MinValue && positionValueF <= t.MaxValue {
-			maintenanceRate = t.MaintenanceRate
-			break
+		if p.PositionValue >= t.MinValue && p.PositionValue <= t.MaxValue {
+			return p.PositionValue * t.MaintenanceRate
 		}
 	}
-	return positionValue.Mul(maintenanceRate)
+	return 0
 }
 
 // calculateLiquidationPrice (強平價格)
-func (p *Position) calculateLiquidationPrice() decimal.Decimal {
-	if p.Size.IsZero() {
-		return decimal.Zero
+func (p *Position) calculateLiquidationPrice() float64 {
+	if p.Size <= 0 {
+		return 0
 	}
 
 	// Liquidation Price Formula:
@@ -330,14 +279,69 @@ func (p *Position) calculateLiquidationPrice() decimal.Decimal {
 	//        		多頭強平價就是 100000-1000 = 99000  USDT
 	//        		空頭強平價就是 100000+1000 = 110000 USDT
 
-	marginBuffer := p.InitialMargin.Sub(p.MaintenanceMargin) // 保證金緩衝額 = 初始放入的押金 - 滑價保險額度
-	priceBuffer := marginBuffer.Div(p.Size)                  // 價格緩衝額   = 保證金緩衝額 / 倉位數量
+	marginBuffer := p.InitialMargin - p.MaintenanceMargin // 保證金緩衝額 = 初始放入的押金 - 滑價保險額度
+	priceBuffer := marginBuffer / p.Size                  // 價格緩衝額   = 保證金緩衝額 / 倉位數量
 
 	if p.Side == LONG { // LONG side
-		p.LiquidationPrice = p.EntryPrice.Sub(priceBuffer)
+		p.LiquidationPrice = p.EntryPrice - priceBuffer
 	} else { // SHORT side
-		p.LiquidationPrice = p.EntryPrice.Add(priceBuffer)
+		p.LiquidationPrice = p.EntryPrice + priceBuffer
 	}
 
 	return p.LiquidationPrice
+}
+
+// UpdateMarkPrice (更新標記價格) 無鎖
+func (p *Position) updateMarkPriceAndPositionVal(markPrice float64) {
+	p.MarkPrice = markPrice
+
+	if p.Size <= p.ZeroSize() {
+		p.PositionValue = 0
+		p.UnrealizedPnL = 0
+	}
+
+	// calculate unrealized PnL
+	if p.Side == LONG { // long side
+		// formula = (markPrice - entryPrice) * size
+		p.UnrealizedPnL = (markPrice - p.EntryPrice) * p.Size
+	} else { // short side
+		// formula = (entryPrice - markPrice) * size
+		p.UnrealizedPnL = (p.EntryPrice - markPrice) * p.Size
+	}
+
+	p.PositionValue = p.MarkPrice * p.Size
+}
+
+// getMarginRatio (保證金率) no lock
+func (p *Position) getMarginRatio() float64 {
+	if p.Size <= p.ZeroSize() || p.MarkPrice <= p.ZeroPrice() {
+		return 100 // safe
+	}
+
+	if p.PositionValue <= 0 {
+		return 100
+	}
+
+	// MarginRatio Formula:
+	// MarginRatio = (MarginAccount Equity Value / Position Value) * 100%
+
+	// cross: TODO
+	// Isolated: (InitialMargin + UnrealizedPnL) / (MarkPrice * Size)
+	accountEquity := 0.0
+	switch p.MarginMode {
+	case CROSS:
+		panic("not implemented cross mode yet")
+	case ISOLATED:
+		accountEquity = p.InitialMargin + p.UnrealizedPnL
+	}
+
+	return accountEquity / p.PositionValue * 100
+}
+
+func (p *Position) ZeroSize() float64 {
+	return math.Pow(10, -float64(p.sizePrecision))
+}
+
+func (p *Position) ZeroPrice() float64 {
+	return math.Pow(10, -float64(p.pricePrecision))
 }

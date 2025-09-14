@@ -1,7 +1,5 @@
 package position
 
-import "github.com/shopspring/decimal"
-
 // PositionSide LONG or SHORT
 type PositionSide int
 
@@ -90,8 +88,15 @@ func (mode MarginMode) String() string {
 
 // MarginTier for calculate MaintenanceMargin
 type MarginTier struct {
-	MinValue        float64         // 最小倉位價值
-	MaxValue        float64         // 最大倉位價值
-	MaintenanceRate decimal.Decimal // 維持保證金率
-	MaxLeverage     uint            // 最大槓桿
+	MinValue        float64 // 最小倉位價值
+	MaxValue        float64 // 最大倉位價值
+	MaintenanceRate float64 // 維持保證金率
+	MaxLeverage     uint    // 最大槓桿
+}
+
+// ========================================================
+
+type PrecisionSetting struct {
+	PricePrecision int8
+	SizePrecision  int8
 }
