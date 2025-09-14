@@ -42,6 +42,9 @@ type Position struct {
 	sizePrecision  int8
 	pricePrecision int8
 
+	sizeZero  float64
+	priceZero float64
+
 	// Lock
 	mu sync.RWMutex
 }
@@ -64,6 +67,8 @@ func NewPosition(userID, symbol string, mode MarginMode, precisionSetting *Preci
 		UnrealizedPnL:  0.0,
 		pricePrecision: precisionSetting.PricePrecision,
 		sizePrecision:  precisionSetting.SizePrecision,
+		priceZero:      math.Pow(10, -float64(precisionSetting.PricePrecision)),
+		sizeZero:       math.Pow(10, -float64(precisionSetting.SizePrecision)),
 		OpenTime:       time.Now(),
 		UpdateTime:     time.Now(),
 	}
@@ -339,9 +344,9 @@ func (p *Position) getMarginRatio() float64 {
 }
 
 func (p *Position) ZeroSize() float64 {
-	return math.Pow(10, -float64(p.sizePrecision))
+	return p.sizeZero
 }
 
 func (p *Position) ZeroPrice() float64 {
-	return math.Pow(10, -float64(p.pricePrecision))
+	return p.priceZero
 }

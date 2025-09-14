@@ -132,13 +132,16 @@ func (pm *PositionManager) UpdateMarkPrices(prices map[string]float64) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
+	// TODO: 效能瓶頸在這裡，updateMarkPrice 被註解起來，一樣會非常耗時。把下面程式碼全都註解，就可以非常快
+	// TODO: 走訪 pm.position 很慢
+	// TODO: goroutine 也慢
 	// block until all position complete price update.
 	var wg sync.WaitGroup
-	for _, userPositions := range pm.positions {
+	for _, userPositions := range pm.positions { // 這裏耗時
 		wg.Add(1)
 		go func(up UserPositions) {
 			defer wg.Done()
-			up.updateMarkPrice(prices)
+			up.updateMarkPrice(prices) // 這個動作幾乎不會耗時，問題不在這裡
 		}(userPositions)
 	}
 	wg.Wait()

@@ -155,7 +155,10 @@ UpdateMarkPrice, LiquidationCheck 仍然不合格。我嘗試把 position 與 po
 
 這樣一來，就不需要主動使用迴圈訪問每一個 positions 做運算了。
 
-至於 `UpdateMarkPrice()` 則需要想一個辦法加速，一定不能使用迴圈訪問每一個倉位來更新標記價格。 TODO
+至於 `UpdateMarkPrice()` 則需要想一個辦法加速，一定不能使用迴圈訪問每一個倉位來更新標記價格。 我想嘗試一下每一個倉位更新標記價格時，都採用非同步更新？試試看。
+結果也不行，速度反而更慢了。
+
+問題在於 manager 136 行附近。
 
 
 ## 預期效能提升目標
