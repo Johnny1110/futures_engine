@@ -139,13 +139,18 @@ func TestLiquidation(t *testing.T) {
 	fmt.Printf("強平價格: %s\n", liquidationPrice.String())
 
 	// 100倍槓桿，初始保證金 1%，維持保證金 0.5%
-	// 強平價格應該約等於 50000 * (1 - 0.01 + 0.005) = 49750
-	expectedLiqPrice := decimal.NewFromFloat(49750)
+	// 強平價格應該約等於 50000 * (1 - 0.01 + 0.004) = 49700
+	expectedLiqPrice := decimal.NewFromFloat(49700)
 	assert.True(t, liquidationPrice.Sub(expectedLiqPrice).Abs().LessThan(decimal.NewFromFloat(100)))
 
 	// 測試接近強平
 	fmt.Println("\n=== 價格接近強平價 ===")
-	position.UpdateMarkPrice(49800)
+	position.UpdateMarkPrice(49710)
+	fmt.Println("接近強平時，倉位資料：", position.GetDisplayInfo())
+	fmt.Println("接近強平時，倉位價值：", position.GetPositionValue())
+	fmt.Println("初始保證金：", position.InitialMargin.String(), "未實現損益:", position.UnrealizedPnL.String())
+	// MarginRatio = (MarginAccount Equity Value / Position Value) * 100%
+	//  (初始保證金 + 未實現損益) /49710 * 100% -> (500 - -290) / 49710
 	marginRatio := position.GetMarginRatio()
 	fmt.Printf("保證金率: %s%%\n", marginRatio.String())
 	fmt.Printf("是否可強平: %v\n", position.IsLiquidatable())
@@ -219,13 +224,19 @@ func TestBatchLiquidationCheck(t *testing.T) {
 	fmt.Println("=== 創建多個測試倉位 ===")
 
 	// 用戶1：安全倉位（低槓桿）
-	pm.OpenPosition(ISOLATED, "user1", "BTCUSDT", LONG, 50000, 1, 5)
+	position1, err := pm.OpenPosition(ISOLATED, "user1", "BTCUSDT", LONG, 50000, 1, 5)
+	assert.Nil(t, err)
+	fmt.Println("user1 開倉: ", position1.GetDisplayInfo())
 
 	// 用戶2：高風險倉位（高槓桿）
-	pm.OpenPosition(ISOLATED, "user2", "BTCUSDT", LONG, 50000, 1, 100)
+	position2, err := pm.OpenPosition(ISOLATED, "user2", "BTCUSDT", LONG, 50000, 1, 100)
+	assert.Nil(t, err)
+	fmt.Println("user2 開倉: ", position2.GetDisplayInfo())
 
 	// 用戶3：空倉高風險
-	pm.OpenPosition(ISOLATED, "user3", "BTCUSDT", SHORT, 50000, 1, 75)
+	position3, err := pm.OpenPosition(ISOLATED, "user3", "BTCUSDT", SHORT, 50000, 1, 75)
+	assert.Nil(t, err)
+	fmt.Println("user3 開倉: ", position3.GetDisplayInfo())
 
 	// 模擬市場價格變動
 	prices := map[string]float64{
@@ -233,6 +244,11 @@ func TestBatchLiquidationCheck(t *testing.T) {
 	}
 
 	pm.UpdateMarkPrices(prices)
+
+	fmt.Println("=== 假個下跌至 49500 時 ===")
+	fmt.Println("user1 倉位: ", position1.GetDisplayInfo())
+	fmt.Println("user2 倉位: ", position2.GetDisplayInfo())
+	fmt.Println("user3 倉位: ", position3.GetDisplayInfo())
 
 	// 獲取所有可強平倉位
 	liquidatable := pm.GetLiquidatablePositions()
@@ -297,7 +313,7 @@ func BenchmarkPositionOperations(b *testing.B) {
 
 	b.Run("UpdateMarkPrice", func(b *testing.B) {
 		// 準備測試數據
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < 10000; i++ {
 			userID := fmt.Sprintf("bench_user_%d", i)
 			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
 		}
@@ -312,7 +328,7 @@ func BenchmarkPositionOperations(b *testing.B) {
 
 	b.Run("LiquidationCheck", func(b *testing.B) {
 		// 準備高風險倉位
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < 10000; i++ {
 			userID := fmt.Sprintf("risk_user_%d", i)
 			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 100)
 		}

@@ -133,9 +133,16 @@ func (pm *PositionManager) UpdateMarkPrices(prices map[string]float64) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
+	// block until all position complete price update.
+	var wg sync.WaitGroup
 	for _, userPositions := range pm.positions {
-		go userPositions.updateMarkPrice(prices)
+		wg.Add(1)
+		go func(up UserPositions) {
+			defer wg.Done()
+			up.updateMarkPrice(prices)
+		}(userPositions)
 	}
+	wg.Wait()
 }
 
 // GetLiquidatablePositions (取得所有可強平倉位)

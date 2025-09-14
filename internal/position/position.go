@@ -225,6 +225,7 @@ func (p *Position) GetMarginRatio() decimal.Decimal {
 	// MarginRatio = (MarginAccount Equity Value / Position Value) * 100%
 
 	positionValue := p.MarkPrice.Mul(p.Size)
+
 	if positionValue.IsZero() {
 		return decimal.NewFromInt(100)
 	}
@@ -285,12 +286,13 @@ func (p *Position) GetDisplayInfo() map[string]interface{} {
 		"size":              p.Size.String(),
 		"entry_price":       p.EntryPrice.String(),
 		"mark_price":        p.MarkPrice.String(),
+		"initial_margin":    p.InitialMargin.String(),
 		"liquidation_price": p.LiquidationPrice.String(),
 		"leverage":          p.Leverage,
 		"margin_mode":       p.MarginMode,
 		"unrealized_pnl":    p.UnrealizedPnL.String(),
 		"realized_pnl":      p.RealizedPnL.String(),
-		"margin_ratio":      p.GetMarginRatio().String() + "%",
+		"margin_ratio":      p.GetMarginRatio().Round(2).String() + "%",
 		"is_liquidatable":   p.IsLiquidatable(),
 	}
 }
