@@ -133,25 +133,18 @@ func BatchUpdatePositions(positions []*FastPosition, prices map[string]float64) 
 }
 ```
 
-## 實施計劃
+## 2025/9/14 日誌
 
-### 🎯 Phase 1: Float64 Migration (Week 1)
-- [ ] 創建 `FastPosition` 結構體
-- [ ] 實現基本 CRUD 操作
-- [ ] 精度控制機制
-- [ ] 單元測試覆蓋
+重構使用 float 取代 Decimal 之後：
 
-### ⚡ Phase 2: Lock-Free Operations (Week 2)  
-- [ ] Atomic 操作實現 `UpdateMarkPrice`
-- [ ] Lock-free 讀取操作
-- [ ] 線程安全驗證
-- [ ] 併發測試
+* OpenPosition: 1,842 ns -> 提速 x2.1
+* UpdateMarkPrice: 162 ms -> 提速 x1.2
+* LiquidationCheck: 286 ms -> 提速 x2.5
 
-### 🚀 Phase 3: Calculation Optimization (Week 3)
-- [ ] 批量操作優化
-- [ ] 預計算快取機制
-- [ ] SIMD 向量化（可選）
-- [ ] 效能基準測試
+<br>
+
+UpdateMarkPrice, LiquidationCheck 仍然不合格。我嘗試把 position 與 position manager 的 mu lock 拔掉，全部不考慮並行安全性問題。結果運行起來一樣沒有成效。
+加不加鎖區別不大。那問題應該就不是出在鎖上，而是整個 positionManager 的設計不合理。需要重新想一下架構。
 
 
 ## 預期效能提升目標
