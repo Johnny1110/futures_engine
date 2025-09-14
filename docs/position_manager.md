@@ -146,6 +146,17 @@ func BatchUpdatePositions(positions []*FastPosition, prices map[string]float64) 
 UpdateMarkPrice, LiquidationCheck 仍然不合格。我嘗試把 position 與 position manager 的 mu lock 拔掉，全部不考慮並行安全性問題。結果運行起來一樣沒有成效。
 加不加鎖區別不大。那問題應該就不是出在鎖上，而是整個 positionManager 的設計不合理。需要重新想一下架構。
 
+<br>
+
+我有一個想法：
+
+`GetLiquidatablePositions()` 不需要主動收集，而是建立一個 Liquidatable Channel，position 持有這個 chan, 在每個 position 更新標記價格時，順便檢查是否觸發強制平倉條件，如果符合條件，則自動轉換狀態至 __平倉中__，
+並且把 position 自己的指針傳送給 Liquidatable Channel。
+
+這樣一來，就不需要主動使用迴圈訪問每一個 positions 做運算了。
+
+至於 `UpdateMarkPrice()` 則需要想一個辦法加速，一定不能使用迴圈訪問每一個倉位來更新標記價格。 TODO
+
 
 ## 預期效能提升目標
 
