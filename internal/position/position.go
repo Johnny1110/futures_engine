@@ -197,6 +197,11 @@ func (p *Position) UpdateMarkPrice(markPrice float64) {
 	defer p.mu.Unlock()
 
 	p.updateMarkPriceAndPositionVal(markPrice)
+	p.calculateLiquidationPrice()
+
+	if p.isLiquidatable() {
+		p.Status = PositionLiquidating
+	}
 }
 
 // GetMarginRatio (保證金率)
@@ -212,17 +217,7 @@ func (p *Position) IsLiquidatable() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	if p.Status != PositionNormal || p.Size <= p.ZeroSize() || p.MarkPrice <= p.ZeroPrice() {
-		return false
-	}
-
-	marginRatio := p.getMarginRatio()
-
-	// marginRatio:      (MarginAccountEquity / PositionValue) * 100%
-	// maintenanceRatio: (MaintenanceMargin / PositionValue) * 100%
-	maintenanceRatio := p.MaintenanceMargin / p.PositionValue * 100
-	// 如果沒有 MaintenanceMargin，可以理解為 marginRatio 降低到 0 既為可被清算
-	return marginRatio <= maintenanceRatio
+	return p.isLiquidatable()
 }
 
 // GetRoi (投資報酬率)
@@ -250,7 +245,8 @@ func (p *Position) GetDisplayInfo() map[string]interface{} {
 		"unrealized_pnl":    p.UnrealizedPnL,
 		"realized_pnl":      p.RealizedPnL,
 		"margin_ratio":      fmt.Sprintf("%2f", math.Round(p.getMarginRatio())) + "%",
-		"is_liquidatable":   p.IsLiquidatable(),
+		"is_liquidatable":   p.isLiquidatable(),
+		"status":            p.Status,
 	}
 }
 
@@ -341,6 +337,24 @@ func (p *Position) getMarginRatio() float64 {
 	}
 
 	return accountEquity / p.PositionValue * 100
+}
+
+func (p *Position) isLiquidatable() bool {
+	if p.Status == PositionClosed || p.Size <= p.ZeroSize() || p.MarkPrice <= p.ZeroPrice() {
+		return false
+	}
+
+	marginRatio := p.getMarginRatio()
+
+	// marginRatio:      (MarginAccountEquity / PositionValue) * 100%
+	// maintenanceRatio: (MaintenanceMargin / PositionValue) * 100%
+	maintenanceRatio := p.MaintenanceMargin / p.PositionValue * 100
+	// 如果沒有 MaintenanceMargin，可以理解為 marginRatio 降低到 0 既為可被清算
+
+	//fmt.Println("$$ marginRatio:", marginRatio)
+	//fmt.Println("$$ maintenanceRatio:", maintenanceRatio)
+
+	return marginRatio <= maintenanceRatio
 }
 
 func (p *Position) ZeroSize() float64 {
