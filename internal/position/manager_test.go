@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
+var symbols = []string{"BTCUSDT", "ETHUSDT"}
+
 // TestBasicPositionLifecycle basic lifecycle
 func TestBasicPositionLifecycle(t *testing.T) {
-	pm := NewPositionManager()
+	pm := NewPositionManager(symbols)
 	userID := "user123"
 	symbol := "BTCUSDT"
 
@@ -92,7 +94,7 @@ func TestBasicPositionLifecycle(t *testing.T) {
 
 // TestShortPosition 測試空倉
 func TestShortPosition(t *testing.T) {
-	pm := NewPositionManager()
+	pm := NewPositionManager(symbols)
 	userID := "user456"
 	symbol := "ETHUSDT"
 
@@ -159,13 +161,15 @@ func TestLiquidation(t *testing.T) {
 	position.UpdateMarkPrice(49700)
 	marginRatio = position.GetMarginRatio()
 	fmt.Printf("保證金率: %f%%\n", marginRatio)
+	fmt.Printf("維持保證金: %f\n", position.MaintenanceMargin)
 	fmt.Printf("是否可強平: %v\n", position.IsLiquidatable())
+	fmt.Printf("當前倉位狀態: %s\n", position.Status)
 	assert.True(t, position.IsLiquidatable())
 }
 
 // TestPositionModes 測試倉位模式
 func TestPositionModes(t *testing.T) {
-	pm := NewPositionManager()
+	pm := NewPositionManager(symbols)
 	userID := "user_mode_test"
 	symbol := "BTCUSDT"
 
@@ -187,7 +191,7 @@ func TestPositionModes(t *testing.T) {
 	fmt.Printf("切換失敗（預期）: %v\n", err)
 
 	// 平掉所有倉位
-	_, err = pm.ClosePosition(userID, symbol, LONG, 50000)
+	_, _, err = pm.ClosePosition(userID, symbol, LONG, 50000)
 	assert.NoError(t, err)
 
 	// 現在可以切換
@@ -217,7 +221,7 @@ func TestPositionModes(t *testing.T) {
 
 // TestBatchLiquidationCheck 測試批量強平檢查
 func TestBatchLiquidationCheck(t *testing.T) {
-	pm := NewPositionManager()
+	pm := NewPositionManager(symbols)
 
 	// 創建多個用戶的倉位
 	fmt.Println("=== 創建多個測試倉位 ===")
@@ -242,15 +246,17 @@ func TestBatchLiquidationCheck(t *testing.T) {
 		"BTCUSDT": 49500, // 價格下跌
 	}
 
-	pm.UpdateMarkPrices(prices)
+	// 獲取所有可強平倉位
+	liquidatable := []*Position{}
+	for symbol, price := range prices {
+		ls, _ := pm.UpdateMarkPrices(symbol, price)
+		liquidatable = append(liquidatable, ls...)
+	}
 
 	fmt.Println("=== 假個下跌至 49500 時 ===")
 	fmt.Println("user1 倉位: ", position1.GetDisplayInfo())
 	fmt.Println("user2 倉位: ", position2.GetDisplayInfo())
 	fmt.Println("user3 倉位: ", position3.GetDisplayInfo())
-
-	// 獲取所有可強平倉位
-	liquidatable := pm.GetLiquidatablePositions()
 
 	fmt.Printf("\n發現 %d 個可強平倉位\n", len(liquidatable))
 	for _, pos := range liquidatable {
@@ -301,7 +307,7 @@ func TestPrecisionAndRounding(t *testing.T) {
 
 // BenchmarkPositionOperations 性能測試
 func BenchmarkPositionOperations(b *testing.B) {
-	pm := NewPositionManager()
+	pm := NewPositionManager(symbols)
 
 	b.Run("OpenPosition", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
@@ -317,34 +323,16 @@ func BenchmarkPositionOperations(b *testing.B) {
 			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
 		}
 
-		prices := map[string]float64{"BTCUSDT": 51000}
-
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			pm.UpdateMarkPrices(prices)
-		}
-	})
-
-	b.Run("LiquidationCheck", func(b *testing.B) {
-		// 準備高風險倉位
-		for i := 0; i < 1000; i++ {
-			userID := fmt.Sprintf("risk_user_%d", i)
-			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 100)
-		}
-
-		prices := map[string]float64{"BTCUSDT": 49700}
-		pm.UpdateMarkPrices(prices)
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = pm.GetLiquidatablePositions()
+			pm.UpdateMarkPrices("BTCUSDT", 51000)
 		}
 	})
 }
 
 // Example 使用範例
 func ExamplePositionManager() {
-	pm := NewPositionManager()
+	pm := NewPositionManager(symbols)
 
 	// 開倉
 	position, _ := pm.OpenPosition(ISOLATED, "alice", "BTCUSDT", LONG, 50000, 1, 10)

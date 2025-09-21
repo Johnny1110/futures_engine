@@ -160,6 +160,11 @@ UpdateMarkPrice, LiquidationCheck 仍然不合格。我嘗試把 position 與 po
 
 問題在於 manager 136 行附近。
 
+我覺得應該在開倉時候分擔一些工作，畢竟開倉速度是非常快的。那麼算法有些時候是在以空間換取時間。
+那就在開倉階段把資料整理好，更方便 Manager 做 UpdateMarkPrice() 
+
+
+
 <br>
 
 2025/09/21 最終版本更新完畢，我優化了 position manager, 使用 slice 資料結構來進行標記價格更新，速度快了 12 倍。使用了 position_ext.go 中的 type 實現。
@@ -173,5 +178,12 @@ UpdateMarkPrice, LiquidationCheck 仍然不合格。我嘗試把 position 與 po
 | Liquidation Check | ~200ns | ~20ns | **10x** |
 | Memory Usage | 100% | 60% | **40% 減少** |
 | GC Pressure | 高 | 極低 | **90% 減少** |
+
+## 風險控制
+
+1. **精度測試**：Float64 vs Decimal 精度比較測試
+2. **回歸測試**：確保所有現有測試通過
+3. **並發安全**：Lock-free 操作的正確性驗證
+4. **逐步遷移**：先並行運行，驗證無誤後切換
 
 ---

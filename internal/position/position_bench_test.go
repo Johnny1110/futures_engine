@@ -181,7 +181,7 @@ func BenchmarkIsLiquidatable(b *testing.B) {
 	b.Run("HighLeveragePosition", func(b *testing.B) {
 		pos := NewPosition("bench_user", "BTCUSDT", ISOLATED, nil)
 		pos.Open(LONG, 50000, 1.0, 125) // High leverage
-		pos.UpdateMarkPrice(49900)       // Near liquidation
+		pos.UpdateMarkPrice(49900)      // Near liquidation
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -193,8 +193,8 @@ func BenchmarkIsLiquidatable(b *testing.B) {
 func BenchmarkBatchLiquidationCheck(b *testing.B) {
 	b.Run("1000_Positions", func(b *testing.B) {
 		positions := setupBenchPositions(1000)
-		
-		// Set some positions to risky prices
+
+		// Set some userPositions to risky prices
 		for i := 0; i < len(positions); i += 10 {
 			positions[i].UpdateMarkPrice(49000) // Make some risky
 		}
@@ -212,8 +212,8 @@ func BenchmarkBatchLiquidationCheck(b *testing.B) {
 
 	b.Run("10000_Positions", func(b *testing.B) {
 		positions := setupBenchPositions(10000)
-		
-		// Set some positions to risky prices
+
+		// Set some userPositions to risky prices
 		for i := 0; i < len(positions); i += 50 {
 			positions[i].UpdateMarkPrice(49000) // Make some risky
 		}
@@ -341,7 +341,7 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 func BenchmarkRealWorldScenarios(b *testing.B) {
 	b.Run("HighFrequencyTrading", func(b *testing.B) {
 		positions := setupBenchPositions(100)
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// Simulate rapid price updates
@@ -395,9 +395,9 @@ func BenchmarkRealWorldScenarios(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			// Update all positions with correlated price movements
+			// Update all userPositions with correlated price movements
 			btcPrice := 50000 + float64(i%1000-500)
-			ethPrice := 3000 + btcPrice*0.06  // ETH loosely follows BTC
+			ethPrice := 3000 + btcPrice*0.06 // ETH loosely follows BTC
 			adaPrice := 1.5 + btcPrice*0.00003
 
 			btcPos.UpdateMarkPrice(btcPrice)
@@ -439,7 +439,7 @@ func BenchmarkStressTests(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			// Update all positions
+			// Update all userPositions
 			basePrice := 50000 + float64(i%100)
 			for j, pos := range positions {
 				price := basePrice + float64(j%10)
@@ -454,7 +454,7 @@ func BenchmarkLegacyComparison(b *testing.B) {
 	// These would be used to compare against decimal.Decimal implementation
 	b.Run("Float64Operations", func(b *testing.B) {
 		pos := setupBenchPosition()
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// Simulate the operations that were slow with decimal
