@@ -310,4 +310,5 @@ make dev
 
 ## 開發筆記
 
-* [Position Manager](docs/position_manager.md)
+* [Position Manager](internal/position/README.md)
+* [Margin System](internal/margin/README.md)

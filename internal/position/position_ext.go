@@ -45,7 +45,14 @@ func (ap *AtomicPositions) UpdateMarkPrice(price float64) []*Position {
 	liquidateList := make([]*Position, 0)
 
 	for idx, pos := range ap.slice {
-		pos.UpdateMarkPrice(price)
+
+		if pos.Status != PositionNormal { // if status is not normal, just skip.
+			continue
+		}
+
+		pos.UpdateMarkPrice(price) // update mark price.
+
+		// clean the position slice.
 		switch pos.Status {
 		case PositionClosed:
 			ap.remove(idx)
@@ -53,6 +60,8 @@ func (ap *AtomicPositions) UpdateMarkPrice(price float64) []*Position {
 		case PositionLiquidating:
 			liquidateList = append(liquidateList, pos)
 			ap.remove(idx)
+			break
+		default:
 			break
 		}
 	}

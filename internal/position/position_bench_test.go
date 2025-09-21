@@ -2,6 +2,7 @@ package position
 
 import (
 	"fmt"
+	"frizo/futures_engine/internal/common"
 	"math/rand"
 	"testing"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 // Benchmark helpers
 func setupBenchPosition() *Position {
-	pos := NewPosition("bench_user", "BTCUSDT", ISOLATED, nil)
+	pos := NewPosition("bench_user", "BTCUSDT", common.ISOLATED, nil)
 	pos.Open(LONG, 50000, 1.0, 10)
 	return pos
 }
@@ -17,7 +18,7 @@ func setupBenchPosition() *Position {
 func setupBenchPositions(count int) []*Position {
 	positions := make([]*Position, count)
 	for i := 0; i < count; i++ {
-		pos := NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", ISOLATED, nil)
+		pos := NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", common.ISOLATED, nil)
 		pos.Open(LONG, 50000+float64(i), 1.0, 10)
 		positions[i] = pos
 	}
@@ -29,7 +30,7 @@ func BenchmarkPositionOpen(b *testing.B) {
 	b.Run("LONG", func(b *testing.B) {
 		positions := make([]*Position, b.N)
 		for i := 0; i < b.N; i++ {
-			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", ISOLATED, nil)
+			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", common.ISOLATED, nil)
 		}
 
 		b.ResetTimer()
@@ -41,7 +42,7 @@ func BenchmarkPositionOpen(b *testing.B) {
 	b.Run("SHORT", func(b *testing.B) {
 		positions := make([]*Position, b.N)
 		for i := 0; i < b.N; i++ {
-			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "ETHUSDT", ISOLATED, nil)
+			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "ETHUSDT", common.ISOLATED, nil)
 		}
 
 		b.ResetTimer()
@@ -53,7 +54,7 @@ func BenchmarkPositionOpen(b *testing.B) {
 	b.Run("HighLeverage", func(b *testing.B) {
 		positions := make([]*Position, b.N)
 		for i := 0; i < b.N; i++ {
-			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", ISOLATED, nil)
+			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", common.ISOLATED, nil)
 		}
 
 		b.ResetTimer()
@@ -179,7 +180,7 @@ func BenchmarkIsLiquidatable(b *testing.B) {
 	})
 
 	b.Run("HighLeveragePosition", func(b *testing.B) {
-		pos := NewPosition("bench_user", "BTCUSDT", ISOLATED, nil)
+		pos := NewPosition("bench_user", "BTCUSDT", common.ISOLATED, nil)
 		pos.Open(LONG, 50000, 1.0, 125) // High leverage
 		pos.UpdateMarkPrice(49900)      // Near liquidation
 
@@ -265,14 +266,14 @@ func BenchmarkPositionMemoryAllocation(b *testing.B) {
 
 	b.Run("NewPosition", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", ISOLATED, nil)
+			NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", common.ISOLATED, nil)
 		}
 	})
 
 	b.Run("OpenPosition", func(b *testing.B) {
 		positions := make([]*Position, b.N)
 		for i := 0; i < b.N; i++ {
-			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", ISOLATED, nil)
+			positions[i] = NewPosition(fmt.Sprintf("user_%d", i), "BTCUSDT", common.ISOLATED, nil)
 		}
 
 		b.ResetTimer()
@@ -364,7 +365,7 @@ func BenchmarkRealWorldScenarios(b *testing.B) {
 
 	b.Run("MarketMaking", func(b *testing.B) {
 		longPos := setupBenchPosition()
-		shortPos := NewPosition("market_maker", "BTCUSDT", ISOLATED, nil)
+		shortPos := NewPosition("market_maker", "BTCUSDT", common.ISOLATED, nil)
 		shortPos.Open(SHORT, 50100, 1.0, 10)
 
 		b.ResetTimer()
@@ -382,13 +383,13 @@ func BenchmarkRealWorldScenarios(b *testing.B) {
 
 	b.Run("PortfolioRiskCalculation", func(b *testing.B) {
 		// Simulate portfolio with different symbols and sizes
-		btcPos := NewPosition("portfolio", "BTCUSDT", ISOLATED, nil)
+		btcPos := NewPosition("portfolio", "BTCUSDT", common.ISOLATED, nil)
 		btcPos.Open(LONG, 50000, 0.5, 10)
 
-		ethPos := NewPosition("portfolio", "ETHUSDT", ISOLATED, nil)
+		ethPos := NewPosition("portfolio", "ETHUSDT", common.ISOLATED, nil)
 		ethPos.Open(SHORT, 3000, 5.0, 20)
 
-		adaPos := NewPosition("portfolio", "ADAUSDT", ISOLATED, nil)
+		adaPos := NewPosition("portfolio", "ADAUSDT", common.ISOLATED, nil)
 		adaPos.Open(LONG, 1.5, 1000.0, 5)
 
 		positions := []*Position{btcPos, ethPos, adaPos}

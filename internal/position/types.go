@@ -66,26 +66,6 @@ func (ps PositionStatus) String() string {
 
 // ========================================================
 
-type MarginMode int
-
-const (
-	CROSS MarginMode = iota
-	ISOLATED
-)
-
-func (mode MarginMode) String() string {
-	switch mode {
-	case CROSS:
-		return "CROSS"
-	case ISOLATED:
-		return "ISOLATED"
-	default:
-		return "unknown"
-	}
-}
-
-// ========================================================
-
 // MarginTier for calculate MaintenanceMargin
 type MarginTier struct {
 	MinValue        float64 // 最小倉位價值

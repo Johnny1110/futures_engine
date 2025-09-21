@@ -2,6 +2,7 @@ package position
 
 import (
 	"fmt"
+	"frizo/futures_engine/internal/common"
 	"sync"
 )
 
@@ -81,7 +82,7 @@ func (pm *PositionManager) GetPosition(userID string, symbol string, side Positi
 }
 
 // OpenPosition (開倉)
-func (pm *PositionManager) OpenPosition(marginMode MarginMode, userID, symbol string, side PositionSide, price, size float64, leverage uint) (*Position, error) {
+func (pm *PositionManager) OpenPosition(marginMode common.MarginMode, userID, symbol string, side PositionSide, price, size float64, leverage uint) (*Position, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -191,6 +192,18 @@ func (pm *PositionManager) SetPositionMode(userID string, mode PositionMode) err
 	pm.mode[userID] = mode
 
 	return nil
+}
+
+func (pm *PositionManager) GetUserPositions(userID string) ([]*Position, error) {
+	if userPositions, exists := pm.userPositions[userID]; exists {
+		positions := make([]*Position, 0, len(userPositions))
+		for _, position := range userPositions {
+			positions = append(positions, position)
+		}
+		return positions, nil
+	} else {
+		return nil, fmt.Errorf("cannot get positions for user %s", userID)
+	}
 }
 
 // ============================================================================================================

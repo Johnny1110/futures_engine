@@ -2,6 +2,7 @@ package position
 
 import (
 	"fmt"
+	"frizo/futures_engine/internal/common"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -12,17 +13,17 @@ func TestAtomicPositions(t *testing.T) {
 	}
 
 	// create some testing position
-	position_1 := NewPosition("user_1", "BTCUSDT", ISOLATED, nil)
+	position_1 := NewPosition("user_1", "BTCUSDT", common.ISOLATED, nil)
 	err := position_1.Open(LONG, 100000, 1, 100)
 	assert.Nil(t, err)
 	atomicPositions.Append(position_1)
 
-	position_2 := NewPosition("user_2", "BTCUSDT", ISOLATED, nil)
+	position_2 := NewPosition("user_2", "BTCUSDT", common.ISOLATED, nil)
 	err = position_2.Open(LONG, 100000, 1, 50)
 	assert.Nil(t, err)
 	atomicPositions.Append(position_2)
 
-	position_3 := NewPosition("user_3", "BTCUSDT", ISOLATED, nil)
+	position_3 := NewPosition("user_3", "BTCUSDT", common.ISOLATED, nil)
 	err = position_3.Open(LONG, 100000, 1, 10)
 	assert.Nil(t, err)
 	atomicPositions.Append(position_3)

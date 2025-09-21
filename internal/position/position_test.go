@@ -1,6 +1,7 @@
 package position
 
 import (
+	"frizo/futures_engine/internal/common"
 	_ "math"
 	"testing"
 	_ "time"
@@ -11,7 +12,7 @@ import (
 
 // Test helpers
 func createTestPosition(userID, symbol string) *Position {
-	return NewPosition(userID, symbol, ISOLATED, nil)
+	return NewPosition(userID, symbol, common.ISOLATED, nil)
 }
 
 func createCustomPrecisionPosition(sizePrecision, pricePrecision int8) *Position {
@@ -19,7 +20,7 @@ func createCustomPrecisionPosition(sizePrecision, pricePrecision int8) *Position
 		SizePrecision:  sizePrecision,
 		PricePrecision: pricePrecision,
 	}
-	return NewPosition("test_user", "BTCUSDT", ISOLATED, precision)
+	return NewPosition("test_user", "BTCUSDT", common.ISOLATED, precision)
 }
 
 // Test Position Creation
@@ -29,7 +30,7 @@ func TestNewPosition(t *testing.T) {
 
 		assert.Equal(t, "user1", pos.UserID)
 		assert.Equal(t, "BTCUSDT", pos.Symbol)
-		assert.Equal(t, ISOLATED, pos.MarginMode)
+		assert.Equal(t, common.ISOLATED, pos.MarginMode)
 		assert.Equal(t, PositionNormal, pos.Status)
 		assert.Equal(t, 0.0, pos.Size)
 		assert.Equal(t, int8(2), pos.pricePrecision)
@@ -391,7 +392,7 @@ func TestGetDisplayInfo(t *testing.T) {
 	assert.Equal(t, 1.0, info["size"])
 	assert.Equal(t, 50000.0, info["entry_price"])
 	assert.Equal(t, int16(10), info["leverage"])
-	assert.Equal(t, ISOLATED, info["margin_mode"])
+	assert.Equal(t, common.ISOLATED, info["margin_mode"])
 }
 
 // Test Precision Functions

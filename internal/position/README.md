@@ -6,7 +6,7 @@
 
 ## 當前 Position 效能分析
 
-![2.png](imgs/2.png)
+![2.png](../../docs/imgs/2.png)
 
 ### 效能瓶頸識別
 
