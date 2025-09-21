@@ -40,16 +40,18 @@ func (p *UserPositions) hasOpenPosition() bool {
 
 // PositionManager (倉位管理器)
 type PositionManager struct {
-	positions map[string]UserPositions // userID -> UserPosition
-	mode      map[string]PositionMode  // userID -> position mode
-	mu        sync.RWMutex
+	userPositions   map[string]UserPositions // userID -> UserPosition
+	symbolPositions *SymbolPositions         // symbol : *Position
+	mode            map[string]PositionMode  // userID -> position mode
+	mu              sync.RWMutex
 }
 
 // NewPositionManager new
-func NewPositionManager() *PositionManager {
+func NewPositionManager(symbols []string) *PositionManager {
 	return &PositionManager{
-		positions: make(map[string]UserPositions),
-		mode:      make(map[string]PositionMode),
+		userPositions:   make(map[string]UserPositions),
+		symbolPositions: NewSymbolPositions(symbols),
+		mode:            make(map[string]PositionMode),
 	}
 }
 
@@ -58,9 +60,9 @@ func (pm *PositionManager) GetPosition(userID string, symbol string, side Positi
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	userPositions, exists := pm.positions[userID]
+	userPositions, exists := pm.userPositions[userID]
 	if !exists {
-		return nil, fmt.Errorf("user does not have any positions")
+		return nil, fmt.Errorf("user does not have any userPositions")
 	}
 
 	mode, exists := pm.mode[userID]
@@ -83,16 +85,16 @@ func (pm *PositionManager) OpenPosition(marginMode MarginMode, userID, symbol st
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// make sure userID in positions
-	if _, exists := pm.positions[userID]; !exists {
-		pm.positions[userID] = make(map[string]*Position)
+	// make sure userID in userPositions
+	if _, exists := pm.userPositions[userID]; !exists {
+		pm.userPositions[userID] = make(map[string]*Position)
 		pm.mode[userID] = OneWayMode // default using 單向持倉
 	}
 
 	positionKey := getPositionKey(symbol, side, pm.mode[userID])
 
 	// check user's position is exist
-	if existingPosition, exists := pm.positions[userID][positionKey]; exists && existingPosition.Size > existingPosition.ZeroSize() {
+	if existingPosition, exists := pm.userPositions[userID][positionKey]; exists && existingPosition.Size > existingPosition.ZeroSize() {
 		// if existing: Add() - 加倉
 		err := existingPosition.Add(price, size)
 		return existingPosition, err
@@ -104,47 +106,61 @@ func (pm *PositionManager) OpenPosition(marginMode MarginMode, userID, symbol st
 			return nil, err
 		}
 		// add position into manager cache.
-		pm.positions[userID][positionKey] = position
+		pm.userPositions[userID][positionKey] = position
+		// add position into symbol array
+		if err = pm.symbolPositions.AddPosition(symbol, position); err != nil {
+			return nil, err
+		}
+
 		return position, nil
 	}
 }
 
 // ClosePosition (關倉/全部平倉) return PnL
-func (pm *PositionManager) ClosePosition(userID, symbol string, side PositionSide, price float64) (float64, error) {
+func (pm *PositionManager) ClosePosition(userID, symbol string, side PositionSide, price float64) (*Position, float64, error) {
 	position, err := pm.GetPosition(userID, symbol, side)
 	if err != nil {
-		return 0.0, err
+		return position, 0.0, err
 	}
-	return position.Close(price)
+	pnl, err := position.Close(price)
+	if err != nil {
+		return position, 0.0, err
+	}
+
+	// remove position from pm
+	positionKey := getPositionKey(symbol, side, pm.mode[userID])
+	if userPosition, exists := pm.userPositions[positionKey]; exists {
+		delete(userPosition, positionKey)
+	}
+
+	return position, pnl, nil
 }
 
 // ReducePosition (減倉/部分平倉) return PnL
-func (pm *PositionManager) ReducePosition(userID, symbol string, side PositionSide, price, size float64) (float64, error) {
+func (pm *PositionManager) ReducePosition(userID, symbol string, side PositionSide, price, size float64) (*Position, float64, error) {
 	position, err := pm.GetPosition(userID, symbol, side)
 	if err != nil {
-		return 0.0, err
+		return position, 0.0, err
 	}
-	return position.Reduce(price, size)
+	pnl, err := position.Reduce(price, size)
+	if err != nil {
+		return position, pnl, err
+	}
+
+	if position.Status == PositionClosed {
+		// remove position from pm
+		positionKey := getPositionKey(symbol, side, pm.mode[userID])
+		if userPosition, exists := pm.userPositions[positionKey]; exists {
+			delete(userPosition, positionKey)
+		}
+	}
+
+	return position, pnl, nil
 }
 
 // UpdateMarkPrices batch update mark price - input prices (symbol: markPrice)
-func (pm *PositionManager) UpdateMarkPrices(prices map[string]float64) {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
-	// TODO: 效能瓶頸在這裡，updateMarkPrice 被註解起來，一樣會非常耗時。把下面程式碼全都註解，就可以非常快
-	// TODO: 走訪 pm.position 很慢
-	// TODO: goroutine 也慢
-	// block until all position complete price update.
-	var wg sync.WaitGroup
-	for _, userPositions := range pm.positions { // 這裏耗時
-		wg.Add(1)
-		go func(up UserPositions) {
-			defer wg.Done()
-			up.updateMarkPrice(prices) // 這個動作幾乎不會耗時，問題不在這裡
-		}(userPositions)
-	}
-	wg.Wait()
+func (pm *PositionManager) UpdateMarkPrices(symbol string, price float64) ([]*Position, error) {
+	return pm.symbolPositions.UpdateMarkPrice(symbol, price)
 }
 
 // GetLiquidatablePositions (取得所有可強平倉位)
@@ -153,7 +169,7 @@ func (pm *PositionManager) GetLiquidatablePositions() []*Position {
 	defer pm.mu.RUnlock()
 
 	var liquidatable []*Position
-	for _, userPositions := range pm.positions {
+	for _, userPositions := range pm.userPositions {
 		liquidatable = append(liquidatable, userPositions.getLiquidatablePositions()...)
 	}
 
@@ -166,9 +182,9 @@ func (pm *PositionManager) SetPositionMode(userID string, mode PositionMode) err
 	defer pm.mu.Unlock()
 
 	// check if still have open position:
-	if userPositions, exists := pm.positions[userID]; exists {
+	if userPositions, exists := pm.userPositions[userID]; exists {
 		if userPositions.hasOpenPosition() {
-			return fmt.Errorf("cannot change position mode with open positions")
+			return fmt.Errorf("cannot change position mode with open userPositions")
 		}
 	}
 

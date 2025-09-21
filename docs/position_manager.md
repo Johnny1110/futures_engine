@@ -160,6 +160,11 @@ UpdateMarkPrice, LiquidationCheck 仍然不合格。我嘗試把 position 與 po
 
 問題在於 manager 136 行附近。
 
+我覺得應該在開倉時候分擔一些工作，畢竟開倉速度是非常快的。那麼算法有些時候是在以空間換取時間。
+那就在開倉階段把資料整理好，更方便 Manager 做 UpdateMarkPrice() 
+
+
+
 
 ## 預期效能提升目標
 
