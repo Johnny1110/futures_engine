@@ -304,6 +304,7 @@ make dev
 1. [Alice 的 BTC 永續合約交易故事](docs/story.md)
 2. [永續合約的本質：零和遊戲](docs/behind_essence.md)
 3. [精度問題](docs/accuracy_issue.md)
+4. [Funding Rate](docs/funding_rate.md)
 
 <br>
 <br>
