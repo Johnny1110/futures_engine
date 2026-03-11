@@ -2,7 +2,7 @@ package position
 
 import (
 	"fmt"
-	"frizo/futures_engine/common"
+	"frizo/futures_engine/internal/common"
 	"math"
 	"sync"
 	"time"
@@ -25,10 +25,10 @@ type Position struct {
 	LiquidationPrice float64 `json:"liquidation_price"` // 強平價格
 
 	// margin info (decimal)
-	InitialMargin     float64    `json:"initial_margin"`     // 初始保證金 (放進倉位鎖定的錢)
-	MaintenanceMargin float64    `json:"maintenance_margin"` // 維持保證金
-	Leverage          int16      `json:"leverage"`
-	MarginMode        MarginMode `json:"margin_mode"`
+	InitialMargin     float64           `json:"initial_margin"`     // 初始保證金 (放進倉位鎖定的錢)
+	MaintenanceMargin float64           `json:"maintenance_margin"` // 維持保證金
+	Leverage          int16             `json:"leverage"`
+	MarginMode        common.MarginMode `json:"margin_mode"`
 
 	// PnL info (decimal)
 	RealizedPnL   float64 `json:"realized_pnl"`   // 已實現盈虧
@@ -50,7 +50,7 @@ type Position struct {
 }
 
 // NewPosition create a init position
-func NewPosition(userID, symbol string, mode MarginMode, precisionSetting *PrecisionSetting) *Position {
+func NewPosition(userID, symbol string, mode common.MarginMode, precisionSetting *PrecisionSetting) *Position {
 	if precisionSetting == nil {
 		precisionSetting = DefaultPrecisionSetting
 	}
@@ -196,6 +196,11 @@ func (p *Position) UpdateMarkPrice(markPrice float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.Status != PositionNormal {
+		// only normal position can be updated.
+		return
+	}
+
 	p.updateMarkPriceAndPositionVal(markPrice)
 	p.calculateLiquidationPrice()
 
@@ -330,9 +335,9 @@ func (p *Position) getMarginRatio() float64 {
 	// Isolated: (InitialMargin + UnrealizedPnL) / (MarkPrice * Size)
 	accountEquity := 0.0
 	switch p.MarginMode {
-	case CROSS:
+	case common.CROSS:
 		panic("not implemented cross mode yet")
-	case ISOLATED:
+	case common.ISOLATED:
 		accountEquity = p.InitialMargin + p.UnrealizedPnL
 	}
 

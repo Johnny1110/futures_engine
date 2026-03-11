@@ -2,6 +2,7 @@ package position
 
 import (
 	"fmt"
+	"frizo/futures_engine/internal/common"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestBasicPositionLifecycle(t *testing.T) {
 
 	// 1. 開多倉
 	fmt.Println("=== 開多倉 ===")
-	position, err := pm.OpenPosition(ISOLATED, userID, symbol, LONG, 50000, 1.0, 10)
+	position, err := pm.OpenPosition(common.ISOLATED, userID, symbol, LONG, 50000, 1.0, 10)
 	assert.NoError(t, err)
 	assert.NotNil(t, position)
 
@@ -100,7 +101,7 @@ func TestShortPosition(t *testing.T) {
 
 	// 1. 開空倉
 	fmt.Println("=== 開空倉 ===")
-	position, err := pm.OpenPosition(ISOLATED, userID, symbol, SHORT, 3000, 10, 20)
+	position, err := pm.OpenPosition(common.ISOLATED, userID, symbol, SHORT, 3000, 10, 20)
 	assert.NoError(t, err)
 
 	fmt.Printf("開空倉: %+v\n", position.GetDisplayInfo())
@@ -126,7 +127,7 @@ func TestShortPosition(t *testing.T) {
 
 // TestLiquidation 測試強平
 func TestLiquidation(t *testing.T) {
-	position := NewPosition("user789", "BTCUSDT", ISOLATED, nil)
+	position := NewPosition("user789", "BTCUSDT", common.ISOLATED, nil)
 
 	// 開一個高槓桿多倉
 	err := position.Open(LONG, 50000, 1, 100) // 100倍槓桿
@@ -177,7 +178,7 @@ func TestPositionModes(t *testing.T) {
 	fmt.Println("=== 單向持倉模式 ===")
 
 	// 開多倉
-	pos1, err := pm.OpenPosition(ISOLATED, userID, symbol, LONG, 50000, 1, 10)
+	pos1, err := pm.OpenPosition(common.ISOLATED, userID, symbol, LONG, 50000, 1, 10)
 	assert.NoError(t, err)
 
 	// 嘗試開空倉（單向模式下應該失敗或關閉多倉）
@@ -203,11 +204,11 @@ func TestPositionModes(t *testing.T) {
 	fmt.Println("\n=== 雙向持倉模式 ===")
 
 	// 開多倉
-	longPos, err := pm.OpenPosition(ISOLATED, userID, symbol, LONG, 50000, 1, 10)
+	longPos, err := pm.OpenPosition(common.ISOLATED, userID, symbol, LONG, 50000, 1, 10)
 	assert.NoError(t, err)
 
 	// 開空倉
-	shortPos, err := pm.OpenPosition(ISOLATED, userID, symbol, SHORT, 50100, 0.5, 10)
+	shortPos, err := pm.OpenPosition(common.ISOLATED, userID, symbol, SHORT, 50100, 0.5, 10)
 	assert.NoError(t, err)
 
 	fmt.Printf("多倉: %+v\n", longPos.GetDisplayInfo())
@@ -227,17 +228,17 @@ func TestBatchLiquidationCheck(t *testing.T) {
 	fmt.Println("=== 創建多個測試倉位 ===")
 
 	// 用戶1：安全倉位（低槓桿）
-	position1, err := pm.OpenPosition(ISOLATED, "user1", "BTCUSDT", LONG, 50000, 1, 5)
+	position1, err := pm.OpenPosition(common.ISOLATED, "user1", "BTCUSDT", LONG, 50000, 1, 5)
 	assert.Nil(t, err)
 	fmt.Println("user1 開倉: ", position1.GetDisplayInfo())
 
 	// 用戶2：高風險倉位（高槓桿）
-	position2, err := pm.OpenPosition(ISOLATED, "user2", "BTCUSDT", LONG, 50000, 1, 100)
+	position2, err := pm.OpenPosition(common.ISOLATED, "user2", "BTCUSDT", LONG, 50000, 1, 100)
 	assert.Nil(t, err)
 	fmt.Println("user2 開倉: ", position2.GetDisplayInfo())
 
 	// 用戶3：空倉高風險
-	position3, err := pm.OpenPosition(ISOLATED, "user3", "BTCUSDT", SHORT, 50000, 1, 75)
+	position3, err := pm.OpenPosition(common.ISOLATED, "user3", "BTCUSDT", SHORT, 50000, 1, 75)
 	assert.Nil(t, err)
 	fmt.Println("user3 開倉: ", position3.GetDisplayInfo())
 
@@ -272,7 +273,7 @@ func TestBatchLiquidationCheck(t *testing.T) {
 
 // TestPrecisionAndRounding 測試精度和四捨五入
 func TestPrecisionAndRounding(t *testing.T) {
-	position := NewPosition("precision_test", "BTCUSDT", ISOLATED, nil)
+	position := NewPosition("precision_test", "BTCUSDT", common.ISOLATED, nil)
 
 	fmt.Println("=== 測試精度處理 ===")
 
@@ -312,7 +313,7 @@ func BenchmarkPositionOperations(b *testing.B) {
 	b.Run("OpenPosition", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			userID := fmt.Sprintf("user_%d", i)
-			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
+			pm.OpenPosition(common.ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
 		}
 	})
 
@@ -320,7 +321,7 @@ func BenchmarkPositionOperations(b *testing.B) {
 		// 準備測試數據
 		for i := 0; i < 1000; i++ {
 			userID := fmt.Sprintf("bench_user_%d", i)
-			pm.OpenPosition(ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
+			pm.OpenPosition(common.ISOLATED, userID, "BTCUSDT", LONG, 50000, 1, 10)
 		}
 
 		b.ResetTimer()
@@ -335,7 +336,7 @@ func ExamplePositionManager() {
 	pm := NewPositionManager(symbols)
 
 	// 開倉
-	position, _ := pm.OpenPosition(ISOLATED, "alice", "BTCUSDT", LONG, 50000, 1, 10)
+	position, _ := pm.OpenPosition(common.ISOLATED, "alice", "BTCUSDT", LONG, 50000, 1, 10)
 	fmt.Printf("Alice 開多倉 1 BTC @ $50,000，10倍槓桿\n")
 
 	// 市場上漲
